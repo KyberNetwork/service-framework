@@ -13,8 +13,8 @@ var xClientIDKey = "x-client-id"
 var clientIDUnknown = "unknown"
 
 func UnaryServerInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo,
-		handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler) (any, error) {
 		clientID := extractClientIDFromContext(ctx)
 		metric.IncClientRequestTotal(ctx, clientID)
 		return handler(ctx, req)

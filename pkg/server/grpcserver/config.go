@@ -10,11 +10,11 @@ func DefaultConfig() *Config {
 	return &Config{
 		GRPC: Listen{
 			Host: "0.0.0.0",
-			Port: 10443,
+			Port: 9080,
 		},
 		HTTP: Listen{
 			Host: "0.0.0.0",
-			Port: 10080,
+			Port: 8080,
 		},
 	}
 }

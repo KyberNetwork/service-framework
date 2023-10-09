@@ -24,7 +24,6 @@ import (
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 
-	"github.com/KyberNetwork/service-framework/pkg/config"
 	"github.com/KyberNetwork/service-framework/pkg/metric"
 	"github.com/KyberNetwork/service-framework/pkg/server/grpcserver"
 	"github.com/KyberNetwork/service-framework/pkg/server/middleware/client"
@@ -43,15 +42,15 @@ func Serve(cfg *grpcserver.Config, services ...grpcserver.Service) {
 		logger.Fatalf("Error when getting zapLogger cause by %v", err)
 	}
 
-	recoveryOpt := recovery.WithRecoveryHandler(func(err interface{}) error {
-		logger.WithFields(logger.Fields{"error": err, "stacktrace": string(debug.Stack())}).Error("unexpected error...")
+	recoveryOpt := recovery.WithRecoveryHandler(func(err any) error {
+		logger.WithFields(logger.Fields{"error": err}).Errorf("recovered from:\n%s", string(debug.Stack()))
 		ctx, cancel := context.WithTimeout(context.Background(), pushPanicMetricTimeout)
 		defer cancel()
 		metric.IncPanicTotal(ctx)
 		return internalServerErr
 	})
 
-	isDevMode := config.GetAppMode(cfg.Mode) == config.Development
+	isDevMode := grpcserver.GetAppMode(cfg.Mode) == grpcserver.Development
 
 	unaryOpts := []grpc.UnaryServerInterceptor{
 		grpcerror.UnaryServerInterceptor(isDevMode, internalServerErr),

@@ -21,8 +21,8 @@ const (
 // Output error will be converted to GRPC error before sending to clients.
 func UnaryServerInterceptor(development bool, internalServerErr error) grpc.UnaryServerInterceptor {
 	w := grpcErrorWrapper{development: development, internalServerErr: internalServerErr}
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo,
-		handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler) (any, error) {
 		if span := trace.SpanContextFromContext(ctx); span.IsValid() {
 			_ = grpc.SetHeader(ctx, metadata.Pairs(keyXTraceID, span.TraceID().String()))
 		}
@@ -42,7 +42,7 @@ func UnaryServerInterceptor(development bool, internalServerErr error) grpc.Unar
 // handlers. For `ClientStream` (n:1) or `BidiStream` (n:m) RPCs, the messages will be rejected on
 // calls to `stream.Recv()`.
 // func StreamServerInterceptor() grpc.StreamServerInterceptor {
-//	return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+//	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 //		wrapper := &recvWrapper{stream}
 //		return handler(srv, wrapper)
 //	}

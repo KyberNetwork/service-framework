@@ -1,4 +1,4 @@
-package config
+package grpcserver
 
 //go:generate go run github.com/dmarkham/enumer -type=AppMode -json
 type AppMode int
