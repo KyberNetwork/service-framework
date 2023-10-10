@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/encoding/gzip"
 )
@@ -87,9 +88,15 @@ func WithTLS(tlsCfg *tls.Config) ApplyOption {
 	}
 }
 
-func WithReconnectionPeriod(reconnectionPeriod time.Duration) ApplyOption {
+func WithMinConnectTimeout(minConnectTimeout time.Duration) ApplyOption {
 	return func(c *Config) {
-		c.ReconnectionPeriod = reconnectionPeriod
+		c.MinConnectTimeout = minConnectTimeout
+	}
+}
+
+func WithConnectBackoff(connectBackoff backoff.Config) ApplyOption {
+	return func(c *Config) {
+		c.ConnectBackoff = connectBackoff
 	}
 }
 

@@ -19,16 +19,17 @@ const (
 )
 
 type Config struct {
-	BaseURL            string
-	ReconnectionPeriod time.Duration
-	IsBlockConnect     bool
-	GRPCCredentials    credentials.TransportCredentials
-	Insecure           bool
-	Compression        Compression
-	Headers            map[string]string
-	ClientID           string
-	Timeout            time.Duration
-	DialOptions        []grpc.DialOption
+	BaseURL           string
+	MinConnectTimeout time.Duration
+	ConnectBackoff    backoff.Config
+	IsBlockConnect    bool
+	GRPCCredentials   credentials.TransportCredentials
+	Insecure          bool
+	Compression       Compression
+	Headers           map[string]string
+	ClientID          string
+	Timeout           time.Duration
+	DialOptions       []grpc.DialOption
 }
 
 // Client wraps the created grpc connection and client.
@@ -90,13 +91,31 @@ func (c *Config) dialOptions() []grpc.DialOption {
 		dialOpts = append(dialOpts, grpc.WithDefaultCallOptions(grpc.UseCompressor(string(c.Compression))))
 	}
 
-	if c.ReconnectionPeriod != 0 {
-		p := grpc.ConnectParams{
-			Backoff:           backoff.DefaultConfig,
-			MinConnectTimeout: c.ReconnectionPeriod,
-		}
-		dialOpts = append(dialOpts, grpc.WithConnectParams(p))
+	connectParams := grpc.ConnectParams{
+		Backoff: backoff.Config{
+			BaseDelay:  1 * time.Second,
+			Multiplier: 1.6,
+			Jitter:     0.2,
+			MaxDelay:   5 * time.Second,
+		},
+		MinConnectTimeout: 5 * time.Second,
 	}
+	if c.ConnectBackoff.BaseDelay != 0 {
+		connectParams.Backoff.BaseDelay = c.ConnectBackoff.BaseDelay
+	}
+	if c.ConnectBackoff.Multiplier != 0 {
+		connectParams.Backoff.Multiplier = c.ConnectBackoff.Multiplier
+	}
+	if c.ConnectBackoff.Jitter != 0 {
+		connectParams.Backoff.Jitter = c.ConnectBackoff.Jitter
+	}
+	if c.ConnectBackoff.MaxDelay != 0 {
+		connectParams.Backoff.MaxDelay = c.ConnectBackoff.MaxDelay
+	}
+	if c.MinConnectTimeout != 0 {
+		connectParams.MinConnectTimeout = c.MinConnectTimeout
+	}
+	dialOpts = append(dialOpts, grpc.WithConnectParams(connectParams))
 
 	if c.IsBlockConnect {
 		dialOpts = append(dialOpts, grpc.WithBlock())
