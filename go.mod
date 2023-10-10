@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/KyberNetwork/kyber-trace-go v0.1.0
-	github.com/KyberNetwork/logger v0.1.1-0.20231003112301-f2dbe430ad41
+	github.com/KyberNetwork/logger v0.1.0
 	github.com/golang/protobuf v1.5.3
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.0.1
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.18.0
@@ -12,7 +12,6 @@ require (
 	go.opentelemetry.io/otel v1.17.0
 	go.opentelemetry.io/otel/metric v1.17.0
 	go.opentelemetry.io/otel/trace v1.17.0
-	go.uber.org/zap v1.24.0
 	google.golang.org/grpc v1.58.2
 	google.golang.org/protobuf v1.31.0
 )
@@ -36,6 +35,7 @@ require (
 	go.opentelemetry.io/proto/otlp v0.19.0 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
+	go.uber.org/zap v1.24.0 // indirect
 	golang.org/x/net v0.15.0 // indirect
 	golang.org/x/sys v0.12.0 // indirect
 	golang.org/x/text v0.13.0 // indirect
@@ -43,5 +43,3 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230920204549-e6e6cdab5c13 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
-
-replace github.com/KyberNetwork/logger => github.com/NgoKimPhu/logger v0.1.1-0.20231003112301-f2dbe430ad41

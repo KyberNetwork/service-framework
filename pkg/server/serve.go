@@ -14,7 +14,6 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/selector"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/validator"
-	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
@@ -28,7 +27,7 @@ import (
 	"github.com/KyberNetwork/service-framework/pkg/server/grpcserver"
 	"github.com/KyberNetwork/service-framework/pkg/server/middleware/client"
 	"github.com/KyberNetwork/service-framework/pkg/server/middleware/grpcerror"
-	logginpkg "github.com/KyberNetwork/service-framework/pkg/server/middleware/logging"
+	logmiddleware "github.com/KyberNetwork/service-framework/pkg/server/middleware/logging"
 )
 
 var internalServerErr = status.Error(codes.Internal, "Something went wrong in our side.")
@@ -37,9 +36,10 @@ const pushPanicMetricTimeout = time.Second
 
 func Serve(cfg *grpcserver.Config, services ...grpcserver.Service) {
 	defer shutdownKyberTrace()
-	zapLogger, err := logger.GetDesugaredZapLoggerDelegate(logger.Get())
+	log, err := logger.InitLogger(logger.Configuration{EnableConsole: true, ConsoleLevel: "info"},
+		logger.LoggerBackendZap)
 	if err != nil {
-		logger.Fatalf("Error when getting zapLogger cause by %v", err)
+		logger.Fatalf("Serve|logger.InitLogger failed|err=%v", err)
 	}
 
 	recoveryOpt := recovery.WithRecoveryHandler(func(err any) error {
@@ -69,14 +69,14 @@ func Serve(cfg *grpcserver.Config, services ...grpcserver.Service) {
 		))
 	}
 	loggingOpts := getLoggingOptions(cfg.Flag.GRPC)
+	logInterceptor := logmiddleware.Logger(log)
 	streamOpts = append(streamOpts,
-		selector.StreamServerInterceptor(logging.StreamServerInterceptor(logginpkg.InterceptorLogger(zapLogger),
+		selector.StreamServerInterceptor(logging.StreamServerInterceptor(logInterceptor,
 			loggingOpts...), selector.MatchFunc(healthSkip)),
-		logging.StreamServerInterceptor(logginpkg.InterceptorLogger(zapLogger), loggingOpts...),
 		validator.StreamServerInterceptor(),
 		recovery.StreamServerInterceptor(recoveryOpt))
 	unaryOpts = append(unaryOpts,
-		selector.UnaryServerInterceptor(logging.UnaryServerInterceptor(logginpkg.InterceptorLogger(zapLogger),
+		selector.UnaryServerInterceptor(logging.UnaryServerInterceptor(logInterceptor,
 			loggingOpts...), selector.MatchFunc(healthSkip)),
 		validator.UnaryServerInterceptor(),
 		recovery.UnaryServerInterceptor(recoveryOpt),
@@ -99,13 +99,6 @@ func Serve(cfg *grpcserver.Config, services ...grpcserver.Service) {
 	if err := s.Serve(); err != nil {
 		logger.Fatalf("Error start server %v", err)
 	}
-}
-
-func NewService[T any](srv T,
-	regServiceServer func(s grpc.ServiceRegistrar, srv T),
-	regServiceHandlerFromEndpoint func(ctx context.Context, mux *runtime.ServeMux, endpoint string,
-		opts []grpc.DialOption) (err error)) grpcserver.Service {
-	return grpcserver.NewService(srv, regServiceServer, regServiceHandlerFromEndpoint)
 }
 
 func healthSkip(_ context.Context, c interceptors.CallMeta) bool {
