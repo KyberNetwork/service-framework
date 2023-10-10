@@ -5,11 +5,11 @@ import (
 	"errors"
 
 	"github.com/KyberNetwork/logger"
-	"github.com/golang/protobuf/proto"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/protoadapt"
 )
 
 const (
@@ -55,19 +55,15 @@ type grpcErrorWrapper struct {
 }
 
 // GRPCError converts original error to GRPC error which will then be converted to HTTP error by grpc-gateway.
-// Error may be wrapped, so must unwrap it to retrieve original error.
 func (w grpcErrorWrapper) GRPCError(err error) error {
-	wrappedErr := unwrapErr(err)
-	if wrappedErr == context.Canceled || wrappedErr == context.DeadlineExceeded {
-		return status.FromContextError(wrappedErr).Err()
-	}
-	stt, ok := status.FromError(wrappedErr)
+	stt, ok := status.FromError(err)
 	if !ok {
-		return status.FromContextError(wrappedErr).Err()
+		return status.FromContextError(err).Err()
 	}
-	if de, ok := wrappedErr.(interface {
-		Details() []proto.Message
-	}); ok {
+	var de interface {
+		Details() []protoadapt.MessageV1
+	}
+	if errors.As(err, &de) {
 		if s, err := stt.WithDetails(de.Details()...); err == nil {
 			stt = s
 		}
@@ -84,12 +80,4 @@ func (w grpcErrorWrapper) GRPCError(err error) error {
 	}
 	logger.WithFields(logger.Fields{"error": err}).Error("unexpected error...")
 	return w.internalServerErr
-}
-
-func unwrapErr(err error) error {
-	wrappedErr := errors.Unwrap(err)
-	if wrappedErr != nil {
-		return wrappedErr
-	}
-	return err
 }
