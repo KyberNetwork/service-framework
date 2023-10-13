@@ -1,8 +1,10 @@
-name: 'Release'
+name: Build
 
 # Check that your service repo is private if this service-framework repo is also private
-# Sample permissions config:
-# permissions: write-all
+# Sample concurrency config:
+# concurrency:
+#   group: ci-workflow-${{ github.ref }}-${{ github.event_name }}
+#   cancel-in-progress: true
 
 on:
   workflow_call:
@@ -13,34 +15,28 @@ on:
       service:
         type: string
         required: true
-      service_name:
-        type: string
-        required: true
-      version:
-        description: 'Release version'
-        type: string
-        required: true
 
 jobs:
-  release:
+  build:
     runs-on: self-hosted
+    if: startsWith(github.ref, 'refs/heads/')
     steps:
       - uses: actions/checkout@v4
       - name: prepare
         id: prepare
         env:
           IMAGE_REPOSITORY: asia.gcr.io/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
-          INPUT_TAG: ${{ github.event.inputs.version }}
         run: |
           #!/bin/bash
-          TAG=${INPUT_TAG#v}
-          echo "version_tag=v$TAG" >> $GITHUB_OUTPUT
+          BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/})
+          IMAGE_TAG=${BRANCH_NAME}-$(echo ${GITHUB_SHA::7})
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "image_url=${IMAGE_REPOSITORY}:${IMAGE_TAG}" >> $GITHUB_OUTPUT
           echo "build_date=$(date +%FT%T%z)" >> $GITHUB_OUTPUT
-          echo "image_repository=${IMAGE_REPOSITORY}" >> $GITHUB_OUTPUT
       - uses: docker/setup-buildx-action@v3
       - uses: google-github-actions/auth@v1
         with:
-          credentials_json: '${{ secrets.GCR_CREDENTIALS }}'
+          credentials_json: "${{ secrets.GCR_CREDENTIALS }}"
       - uses: google-github-actions/setup-gcloud@v1
       - name: Cache Docker layers
         uses: actions/cache@v3
@@ -52,18 +48,17 @@ jobs:
           context: .
           push: true
           build-args: |
-            VERSION=${{ steps.prepare.outputs.version_tag }}
+            VERSION=${{ steps.prepare.outputs.image_tag }}
             GIT_HASH=${{ github.sha }}
             BUILD_DATE=${{ steps.prepare.outputs.build_date }}
             GH_USER=kyber-ci-bot
           labels: |
             kyber.network.schema-version=1.0
             kyber.network.vcs-ref=${{ github.sha }}
-            kyber.network.version=${{ steps.prepare.outputs.version_tag }}
+            kyber.network.version=${{ steps.prepare.outputs.image_tag }}
             kyber.network.name=${{ inputs.service }}
           tags: |
-            ${{ steps.prepare.outputs.image_repository }}:latest
-            ${{ steps.prepare.outputs.image_repository }}:${{ steps.prepare.outputs.version_tag }}
+            ${{ steps.prepare.outputs.image_url }}
           secrets: |
             "gh_pat=${{ secrets.GH_PAT }}"
           cache-from: type=local,src=/tmp/.buildx-cache
@@ -72,17 +67,3 @@ jobs:
         run: |
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-      - name: Create tag
-        env:
-          VERSION_TAG: ${{ steps.prepare.outputs.version_tag }}
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
-          git tag -d "$VERSION_TAG" 2> /dev/null || echo "Release tag '$VERSION_TAG' does NOT exist"
-          git tag --annotate --message "${{ inputs.service }} $VERSION_TAG" "$VERSION_TAG"
-          git push origin "refs/tags/$VERSION_TAG"
-      - uses: softprops/action-gh-release@v1
-        with:
-          token: ${{ secrets.GH_PAT }}
-          tag_name: ${{ steps.prepare.outputs.version_tag }}
-          name: "${{ inputs.service_name }} ${{ steps.prepare.outputs.version_tag }}"
