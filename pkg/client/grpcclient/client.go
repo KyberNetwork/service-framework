@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/validator"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
@@ -121,11 +122,16 @@ func (c *Config) dialOptions() []grpc.DialOption {
 		dialOpts = append(dialOpts, grpc.WithBlock())
 	}
 
+	requestHeaders := c.requestHeaders()
+	unaryInterceptors := []grpc.UnaryClientInterceptor{
+		validator.UnaryClientInterceptor(),
+		RequestHeadersInterceptor(requestHeaders),
+	}
 	if c.Timeout != 0 {
-		dialOpts = append(dialOpts, grpc.WithUnaryInterceptor(TimeoutInterceptor(c.Timeout)))
+		unaryInterceptors = append(unaryInterceptors, TimeoutInterceptor(c.Timeout))
 	}
 
-	dialOpts = append(dialOpts, grpc.WithUnaryInterceptor(RequestHeadersInterceptor(c.requestHeaders())))
+	dialOpts = append(dialOpts, grpc.WithChainUnaryInterceptor(unaryInterceptors...))
 
 	return append(dialOpts, c.DialOptions...)
 }
