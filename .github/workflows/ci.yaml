@@ -8,10 +8,6 @@ name: CI
 
 on:
   workflow_call:
-    inputs:
-      service:
-        type: string
-        required: true
 
 jobs:
   lint:
