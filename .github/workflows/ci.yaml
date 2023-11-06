@@ -5,6 +5,10 @@ name: CI
 # concurrency:
 #   group: ci-workflow-${{ github.ref }}-${{ github.event_name }}
 #   cancel-in-progress: true
+# Sample permissions config:
+# permissions:
+#   issues: write
+#   pull-requests: write
 
 on:
   workflow_call:
@@ -27,6 +31,8 @@ jobs:
 
   test:
     runs-on: self-hosted
+    outputs:
+      cov: ${{ steps.cov.outputs.cov }}
     steps:
       - name: Add git config for Go private module
         run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
@@ -36,7 +42,84 @@ jobs:
           go-version-file: 'go.mod'
 
       - name: Run tests
-        run: go test -race -coverprofile cover.out -vet=off ./...
-      - name: Print coverage
         run: |
-          go tool cover -func cover.out | grep total | awk '{notice="Statement Coverage: " substr($3, 1, length($3))} END {print notice}'
+          go test -race -cover -vet=off ./... >cover.out &&
+            { echo '```'; cat cover.out; } >> $GITHUB_STEP_SUMMARY
+      - id: cov
+        name: Get coverage
+        run: |
+          {
+            echo 'cov<<EOF'
+            <cover.out grep -v 'no test files' |
+              awk '{printf "%s b %.2f\n", $2, $5}'
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+  test_base:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+    outputs:
+      cov: ${{ steps.cov.outputs.cov }}
+    steps:
+      - name: Add git config for Go private module
+        run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+      - uses: actions/setup-go@v4
+        with:
+          go-version-file: 'go.mod'
+
+      - id: cov
+        name: Get coverage
+        run: |
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          {
+            echo 'cov<<EOF'
+            go test -covermode=set -vet=off ./... |
+              tee -a $GITHUB_STEP_SUMMARY |
+              grep -v 'no test files' |
+              awk '{printf "%s a %.2f\n", $2, $5}'
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+  test_coverage:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request' && ${{ !cancelled() }} && needs.test.result == 'success'
+    needs: [test, test_base]
+    steps:
+      - id: cov
+        name: Generate coverage report
+        run: |
+          {
+            echo 'report<<EOF'
+            <<<"${{ needs.test_base.outputs.cov }}"$'\n'"${{ needs.test.outputs.cov }}" sort |
+              awk 'function diff(a, b) {
+                  if (!a && !b) { return }
+                  printf("| %s | %.2f%% | %.2f%% | %s |\n", pkg, a, b, (a && b < a) ? ":x:" : ":heavy_check_mark:")
+                }
+
+                BEGIN { print("Test coverage changes:\n" \
+                  "| Package | Before | After | Diff |\n" \
+                  "| ------- | -----: | ----: | ---- |")
+                }
+
+                $1 != pkg {
+                  diff(a, b)
+                  a = b = ""
+                  pkg = $1
+                }
+                $2 == "a" { a = $3 }
+                $2 == "b" { b = $3 }
+
+                END {
+                  diff(a, b)
+                }' | tee -a $GITHUB_STEP_SUMMARY
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+      - name: Comment PR
+        uses: thollander/actions-comment-pull-request@v2
+        with:
+          pr_number: ${{ github.event.pull_request.number }}
+          comment_tag: cov
+          message: ${{ steps.cov.outputs.report }}
