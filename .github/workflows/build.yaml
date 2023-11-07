@@ -16,6 +16,9 @@ on:
         type: string
         required: true
 
+env:
+  IMAGE_REGISTRY: asia.gcr.io
+
 jobs:
   build:
     runs-on: self-hosted
@@ -25,7 +28,7 @@ jobs:
       - name: prepare
         id: prepare
         env:
-          IMAGE_REPOSITORY: asia.gcr.io/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
+          IMAGE_REPOSITORY: ${{ env.IMAGE_REGISTRY }}/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
         run: |
           #!/bin/bash
           BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/})
@@ -38,11 +41,6 @@ jobs:
         with:
           credentials_json: "${{ secrets.GCR_CREDENTIALS }}"
       - uses: google-github-actions/setup-gcloud@v1
-      - name: Cache Docker layers
-        uses: actions/cache@v3
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-${{ inputs.service }}-buildx
       - uses: docker/build-push-action@v5
         with:
           context: .
@@ -61,9 +59,5 @@ jobs:
             ${{ steps.prepare.outputs.image_url }}
           secrets: |
             "gh_pat=${{ secrets.GH_PAT }}"
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new
-      - name: Move Docker cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
