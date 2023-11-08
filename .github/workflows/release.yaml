@@ -21,6 +21,9 @@ on:
         type: string
         required: true
 
+env:
+  IMAGE_REGISTRY: asia.gcr.io
+
 jobs:
   release:
     runs-on: self-hosted
@@ -29,7 +32,7 @@ jobs:
       - name: prepare
         id: prepare
         env:
-          IMAGE_REPOSITORY: asia.gcr.io/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
+          IMAGE_REPOSITORY: ${{ env.IMAGE_REGISTRY }}/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
           INPUT_TAG: ${{ github.event.inputs.version }}
         run: |
           #!/bin/bash
@@ -40,13 +43,8 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - uses: google-github-actions/auth@v1
         with:
-          credentials_json: '${{ secrets.GCR_CREDENTIALS }}'
+          credentials_json: "${{ secrets.GCR_CREDENTIALS }}"
       - uses: google-github-actions/setup-gcloud@v1
-      - name: Cache Docker layers
-        uses: actions/cache@v3
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-${{ inputs.service }}-buildx
       - uses: docker/build-push-action@v5
         with:
           context: .
@@ -66,12 +64,8 @@ jobs:
             ${{ steps.prepare.outputs.image_repository }}:${{ steps.prepare.outputs.version_tag }}
           secrets: |
             "gh_pat=${{ secrets.GH_PAT }}"
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new
-      - name: Move Docker cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - name: Create tag
         env:
           VERSION_TAG: ${{ steps.prepare.outputs.version_tag }}
