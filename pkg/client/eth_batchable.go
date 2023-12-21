@@ -13,24 +13,24 @@ import (
 )
 
 type BatchableEthCfg struct {
-	EthCfg     `mapstructure:",squash"`
-	BatchRate  time.Duration
-	BatchCnt   int
-	BackoffCfg `mapstructure:",squash"`
-	C          *BatchableEthClient
+	EthCfg    `mapstructure:",squash"`
+	BatchRate time.Duration
+	BatchCnt  int
+	BackOff   *BackoffCfg
+	C         *BatchableEthClient
 }
 
 func (*BatchableEthCfg) OnUpdate(old, new *BatchableEthCfg) {
 	if old == nil {
 		new.EthCfg.OnUpdate(nil, &new.EthCfg)
-		new.BackoffCfg.OnUpdate(nil, &new.BackoffCfg)
+		new.BackOff.OnUpdate(nil, new.BackOff)
 	} else {
 		new.EthCfg.OnUpdate(&old.EthCfg, &new.EthCfg)
-		new.BackoffCfg.OnUpdate(&old.BackoffCfg, &new.BackoffCfg)
+		new.BackOff.OnUpdate(old.BackOff, new.BackOff)
 	}
 	new.C = NewBatchableEthClient(new.EthCfg.C, func() (time.Duration, int) {
 		return new.BatchRate, new.BatchCnt
-	}, new.BackOff)
+	}, new.BackOff.BackOff)
 	if old != nil && old.C != nil {
 		time.AfterFunc(EthCloseDelay, func() {
 			old.C.Close()

@@ -6,6 +6,7 @@ import (
 
 type BackoffCfg struct {
 	backoff.ExponentialBackOff `mapstructure:",squash"`
+	MaxRetries                 uint64
 	backoff.BackOff
 }
 
@@ -28,6 +29,9 @@ func (b *BackoffCfg) OnUpdate(_, new *BackoffCfg) {
 	}
 	expBackoff.Reset()
 	new.BackOff = expBackoff
+	if new.MaxRetries != 0 {
+		new.BackOff = backoff.WithMaxRetries(expBackoff, new.MaxRetries)
+	}
 }
 
 func (b *BackoffCfg) Retry(o backoff.Operation) error {
