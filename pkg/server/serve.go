@@ -3,97 +3,83 @@ package server
 import (
 	"context"
 	"runtime/debug"
-	"time"
 
 	kybermetric "github.com/KyberNetwork/kyber-trace-go/pkg/metric"
 	kybertracer "github.com/KyberNetwork/kyber-trace-go/pkg/tracer"
 	_ "github.com/KyberNetwork/kyber-trace-go/tools"
-	"github.com/KyberNetwork/logger"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/selector"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/validator"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
-	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/filters"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	_ "google.golang.org/grpc/encoding/gzip"
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/stats"
 	"google.golang.org/grpc/status"
 
-	"github.com/KyberNetwork/service-framework/pkg/metric"
+	"github.com/KyberNetwork/service-framework/pkg/common"
+	"github.com/KyberNetwork/service-framework/pkg/observe"
+	"github.com/KyberNetwork/service-framework/pkg/observe/klog"
+	"github.com/KyberNetwork/service-framework/pkg/observe/kmetric"
 	"github.com/KyberNetwork/service-framework/pkg/server/grpcserver"
-	"github.com/KyberNetwork/service-framework/pkg/server/middleware/client"
-	"github.com/KyberNetwork/service-framework/pkg/server/middleware/grpcerror"
 	logmiddleware "github.com/KyberNetwork/service-framework/pkg/server/middleware/logging"
+	"github.com/KyberNetwork/service-framework/pkg/server/middleware/trace"
 )
 
-var internalServerErr = status.Error(codes.Internal, "Something went wrong in our side.")
+var internalServerErr = status.New(codes.Internal, "Internal server error")
 
-const pushPanicMetricTimeout = time.Second
-
-func Serve(cfg *grpcserver.Config, services ...grpcserver.Service) {
+func Serve(ctx context.Context, cfg *grpcserver.Config, services ...grpcserver.Service) {
 	defer shutdownKyberTrace()
-	log, err := logger.InitLogger(logger.Configuration{EnableConsole: true, ConsoleLevel: "info"},
-		logger.LoggerBackendZap)
-	if err != nil {
-		logger.Fatalf("Serve|logger.InitLogger failed|err=%v", err)
-	}
 
-	isDevMode := grpcserver.GetAppMode(cfg.Mode) == grpcserver.Development
-
+	appMode := grpcserver.GetAppMode(cfg.Mode)
+	isDevMode := appMode == grpcserver.Development
 	unaryOpts := []grpc.UnaryServerInterceptor{
-		grpcerror.UnaryServerInterceptor(isDevMode, internalServerErr),
-		client.UnaryServerInterceptor(),
+		trace.UnaryServerInterceptor(isDevMode, internalServerErr),
 	}
 	var streamOpts []grpc.StreamServerInterceptor
 
-	logInterceptor := logmiddleware.Logger(log)
-	loggingOpts := getLoggingOptions(cfg.Flag.GRPC)
+	loggingLogger := logmiddleware.Logger()
+	loggingOpts := getLoggingOptions(cfg.Flag)
 	recoveryOpt := recovery.WithRecoveryHandler(func(err any) error {
-		logger.WithFields(logger.Fields{"error": err}).Errorf("recovered from:\n%s", string(debug.Stack()))
-		ctx, cancel := context.WithTimeout(context.Background(), pushPanicMetricTimeout)
-		defer cancel()
-		metric.IncPanicTotal(ctx)
-		return internalServerErr
+		klog.WithFields(ctx, klog.Fields{"error": err}).Errorf("recovered from:\n%s", string(debug.Stack()))
+		kmetric.IncPanicTotal(context.Background())
+		return internalServerErr.Err()
 	})
-	streamOpts = append(streamOpts,
-		selector.StreamServerInterceptor(logging.StreamServerInterceptor(logInterceptor,
-			loggingOpts...), selector.MatchFunc(healthSkip)),
-		validator.StreamServerInterceptor(),
-		recovery.StreamServerInterceptor(recoveryOpt))
 	unaryOpts = append(unaryOpts,
-		selector.UnaryServerInterceptor(logging.UnaryServerInterceptor(logInterceptor,
-			loggingOpts...), selector.MatchFunc(healthSkip)),
+		selector.UnaryServerInterceptor(logging.UnaryServerInterceptor(loggingLogger, loggingOpts...),
+			selector.MatchFunc(healthSkip)),
 		validator.UnaryServerInterceptor(),
 		recovery.UnaryServerInterceptor(recoveryOpt),
 	)
+	streamOpts = append(streamOpts,
+		selector.StreamServerInterceptor(logging.StreamServerInterceptor(loggingLogger, loggingOpts...),
+			selector.MatchFunc(healthSkip)),
+		validator.StreamServerInterceptor(),
+		recovery.StreamServerInterceptor(recoveryOpt))
 
+	otelGrpcStatHandler := getOtelGrpcStatsHandler()
 	serverOptions := []grpc.ServerOption{
+		grpc.StatsHandler(otelGrpcStatHandler),
 		grpc.ChainUnaryInterceptor(unaryOpts...),
 		grpc.ChainStreamInterceptor(streamOpts...),
 	}
-	if isEnabledOTEL() {
-		otelGrpcStatHandler := getOtelGrpcStatsHandler()
-		serverOptions = append(serverOptions, grpc.StatsHandler(otelGrpcStatHandler))
-	}
-	s := grpcserver.NewServer(cfg, isDevMode, serverOptions...)
+	s := grpcserver.NewServer(cfg, appMode, serverOptions...)
 
 	if err := s.Register(services...); err != nil {
-		logger.Fatalf("Error register servers %v", err)
+		klog.Fatalf(ctx, "Error register servers %v", err)
 	}
 
-	logger.WithFields(logger.Fields{
-		"grpc_addr": cfg.GRPC.Host,
-		"grpc_port": cfg.GRPC.Port,
-		"http_addr": cfg.HTTP.Host,
-		"http_port": cfg.HTTP.Port}).Info("Starting server...")
+	klog.WithFields(ctx, klog.Fields{
+		"grpc_addr": cfg.GRPC.String(),
+		"http_addr": cfg.HTTP.String()}).Info("Starting server...")
 	if err := s.Serve(); err != nil {
-		logger.Fatalf("Error start server %v", err)
+		klog.Fatalf(ctx, "Error start server %v", err)
 	}
 }
 
@@ -102,13 +88,48 @@ func healthSkip(_ context.Context, c interceptors.CallMeta) bool {
 }
 
 func getOtelGrpcStatsHandler() stats.Handler {
-	return otelgrpc.NewServerHandler(
-		// nolint:staticcheck // https://github.com/open-telemetry/opentelemetry-go-contrib/issues/4575
-		otelgrpc.WithInterceptorFilter(filters.Not(filters.HealthCheck())),
-		otelgrpc.WithPropagators(otel.GetTextMapPropagator()),
-		otelgrpc.WithMeterProvider(kybermetric.Provider()),
-		otelgrpc.WithTracerProvider(kybertracer.Provider()),
-	)
+	observe.EnsureTracerProvider()
+	propagator := otel.GetTextMapPropagator()
+	propagator = &requestIdExtractor{propagator}
+	return &OtelServerHandler{otelgrpc.NewServerHandler(otelgrpc.WithPropagators(propagator))}
+}
+
+type requestIdExtractor struct {
+	propagation.TextMapPropagator
+}
+
+func (r *requestIdExtractor) Extract(ctx context.Context, carrier propagation.TextMapCarrier) context.Context {
+	ctx = r.TextMapPropagator.Extract(ctx, carrier)
+	if _, ok := common.TraceIdFromCtx(ctx); ok {
+		return ctx
+	}
+	md, _ := metadata.FromIncomingContext(ctx)
+	requestIds := md.Get(common.HeaderXRequestId)
+	if len(requestIds) == 0 {
+		return ctx
+	}
+	return common.CtxWithTraceId(ctx, requestIds[0])
+}
+
+type OtelServerHandler struct {
+	stats.Handler
+}
+
+type ctxKeySkipHealth struct{}
+
+func (s *OtelServerHandler) TagRPC(ctx context.Context, info *stats.RPCTagInfo) context.Context {
+	if info.FullMethodName == healthv1.Health_Check_FullMethodName ||
+		info.FullMethodName == healthv1.Health_Watch_FullMethodName {
+		return context.WithValue(ctx, ctxKeySkipHealth{}, struct{}{})
+	}
+	return s.Handler.TagRPC(ctx, info)
+}
+
+func (s *OtelServerHandler) HandleRPC(ctx context.Context, rs stats.RPCStats) {
+	if ctx.Value(ctxKeySkipHealth{}) != nil {
+		return
+	}
+	s.Handler.HandleRPC(ctx, rs)
 }
 
 func shutdownKyberTrace() {
@@ -121,12 +142,12 @@ func shutdownTracer(ctx context.Context) {
 	if kybertracer.Provider() != nil {
 		err := kybertracer.Flush(ctx)
 		if err != nil {
-			logger.Errorf("Failed to flush tracer: %v", err)
+			klog.Errorf(ctx, "Failed to flush tracer: %v", err)
 		}
-		logger.Info("start shutdown tracer")
+		klog.Info(ctx, "start shutdown tracer")
 		err = kybertracer.Shutdown(ctx)
 		if err != nil {
-			logger.Errorf("Failed to shutdown tracer: %v", err)
+			klog.Errorf(ctx, "Failed to shutdown tracer: %v", err)
 		}
 	}
 }
@@ -135,33 +156,23 @@ func shutdownMetric(ctx context.Context) {
 	if kybermetric.Provider() != nil {
 		err := kybermetric.Flush(ctx)
 		if err != nil {
-			logger.Errorf("Failed to flush metric: %v", err)
+			klog.Errorf(ctx, "Failed to flush metric: %v", err)
 		}
-		logger.Info("start shutdown metric")
+		klog.Info(ctx, "start shutdown metric")
 		err = kybermetric.Shutdown(ctx)
 		if err != nil {
-			logger.Errorf("Failed to shutdown metric: %v", err)
+			klog.Errorf(ctx, "Failed to shutdown metric: %v", err)
 		}
 	}
 }
 
-func isEnabledOTEL() bool {
-	return kybertracer.Provider() != nil && kybermetric.Provider() != nil
+var disabledLoggingFields = []string{
+	logging.SystemTag[0],
+	logging.ComponentFieldKey,
 }
 
-func getLoggingOptions(grpc grpcserver.GRPCFlag) []logging.Option {
-	logTraceID := func(ctx context.Context) logging.Fields {
-		if span := trace.SpanContextFromContext(ctx); span.IsValid() {
-			return logging.Fields{"traceID", span.TraceID().String()}
-		}
-		return nil
-	}
-
-	opts := []logging.Option{
-		logging.WithFieldsFromContext(logTraceID),
-	}
+func getLoggingOptions(grpc grpcserver.Flag) []logging.Option {
 	loggableEvents := []logging.LoggableEvent{logging.FinishCall}
-
 	if !grpc.DisableLogRequest {
 		loggableEvents = append(loggableEvents, logging.PayloadReceived)
 	}
@@ -169,6 +180,16 @@ func getLoggingOptions(grpc grpcserver.GRPCFlag) []logging.Option {
 		loggableEvents = append(loggableEvents, logging.PayloadSent)
 	}
 
-	opts = append(opts, logging.WithLogOnEvents(loggableEvents...))
-	return opts
+	return []logging.Option{
+		logging.WithDisableLoggingFields(disabledLoggingFields...),
+		logging.WithFieldsFromContext(func(ctx context.Context) logging.Fields {
+			md, _ := metadata.FromIncomingContext(ctx)
+			forwardedForLst := md[common.HeaderXForwardedFor]
+			if len(forwardedForLst) == 0 {
+				return nil
+			}
+			return logging.Fields{common.HeaderXForwardedFor, forwardedForLst}
+		}),
+		logging.WithLogOnEvents(loggableEvents...),
+	}
 }

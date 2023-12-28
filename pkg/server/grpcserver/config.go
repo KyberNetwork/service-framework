@@ -1,6 +1,9 @@
 package grpcserver
 
 import (
+	"net"
+	"strconv"
+
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
 )
@@ -21,10 +24,10 @@ func DefaultConfig() *Config {
 
 type (
 	Server struct {
-		gRPC      *grpc.Server
-		mux       *runtime.ServeMux
-		cfg       *Config
-		isDevMode bool
+		gRPC *grpc.Server
+		mux  *runtime.ServeMux
+		cfg  *Config
+		AppMode
 	}
 
 	// Config hold http/grpc server config
@@ -36,10 +39,6 @@ type (
 	}
 
 	Flag struct {
-		GRPC GRPCFlag
-	}
-
-	GRPCFlag struct {
 		DisableLogRequest  bool
 		DisableLogResponse bool
 	}
@@ -50,3 +49,8 @@ type (
 		Port int
 	}
 )
+
+// String return socket listen DSN
+func (l *Listen) String() string {
+	return net.JoinHostPort(l.Host, strconv.Itoa(l.Port))
+}

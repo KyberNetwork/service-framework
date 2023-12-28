@@ -2,13 +2,12 @@ package grpcserver
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
-	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
@@ -16,6 +15,8 @@ import (
 	"google.golang.org/grpc/health"
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/protobuf/encoding/protojson"
+
+	"github.com/KyberNetwork/service-framework/pkg/common"
 )
 
 type (
@@ -53,20 +54,16 @@ func NewService[T any](srv T,
 	}
 }
 
-// String return socket listen DSN
-func (l Listen) String() string {
-	return fmt.Sprintf("%s:%d", l.Host, l.Port)
-}
-
 // NewServer return a new grpc server
-func NewServer(cfg *Config, isDevMode bool, opt ...grpc.ServerOption) *Server {
+func NewServer(cfg *Config, appMode AppMode, opt ...grpc.ServerOption) *Server {
 	if cfg.GRPC.Host == "" && cfg.GRPC.Port == 0 {
-		cfg = DefaultConfig()
+		*cfg = *DefaultConfig()
 	}
 	return &Server{
 		gRPC: grpc.NewServer(opt...),
 		mux: runtime.NewServeMux(
 			runtime.WithIncomingHeaderMatcher(CustomHeaderMatcher),
+			runtime.WithOutgoingHeaderMatcher(CustomHeaderMatcher),
 			runtime.WithMarshalerOption(runtime.MIMEWildcard,
 				&runtime.JSONPb{
 					MarshalOptions: protojson.MarshalOptions{
@@ -79,8 +76,8 @@ func NewServer(cfg *Config, isDevMode bool, opt ...grpc.ServerOption) *Server {
 					},
 				})),
 
-		cfg:       cfg,
-		isDevMode: isDevMode,
+		cfg:     cfg,
+		AppMode: appMode,
 	}
 }
 
@@ -132,10 +129,6 @@ func (s *Server) Serve() error {
 				return err
 			}
 			s.gRPC.GracefulStop()
-			if !s.isDevMode {
-				fmt.Println("Shutting down. Wait for 15 seconds")
-				time.Sleep(15 * time.Second)
-			}
 			return nil
 		case err := <-errCh:
 			return err
@@ -144,11 +137,14 @@ func (s *Server) Serve() error {
 }
 
 var passThruHeaders = map[string]struct{}{
-	"X-Client-Id": {},
+	common.HeaderXForwardedFor: {},
+	common.HeaderXClientId:     {},
+	common.HeaderXTraceId:      {},
+	common.HeaderXRequestId:    {},
 }
 
 func CustomHeaderMatcher(key string) (string, bool) {
-	if _, ok := passThruHeaders[key]; ok {
+	if _, ok := passThruHeaders[strings.ToLower(key)]; ok {
 		return key, true
 	}
 	return runtime.DefaultHeaderMatcher(key)

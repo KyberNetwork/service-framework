@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"github.com/KyberNetwork/kyber-trace-go/pkg/tracer"
-	"github.com/KyberNetwork/logger"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
+	"github.com/KyberNetwork/service-framework/pkg/observe/klog"
 )
 
 const EthCloseDelay = time.Minute
@@ -25,10 +26,11 @@ type EthCfg struct {
 }
 
 func (*EthCfg) OnUpdate(old, new *EthCfg) {
+	ctx := context.Background()
 	var err error
 	new.C, err = new.Dial(context.Background())
 	if err != nil {
-		logger.Errorf("EthCfg.OnUpdate|new.Dial failed: %v", err)
+		klog.Errorf(ctx, "EthCfg.OnUpdate|new.Dial failed: %v", err)
 	}
 	if old != nil && old.C != nil {
 		time.AfterFunc(EthCloseDelay, func() {
