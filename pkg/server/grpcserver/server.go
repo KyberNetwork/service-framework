@@ -46,7 +46,7 @@ func (s *ServiceImpl[T]) RegServiceHandlerFromEndpoint(ctx context.Context, mux 
 func NewService[T any](srv T,
 	regServiceServer func(s grpc.ServiceRegistrar, srv T),
 	regServiceHandlerFromEndpoint func(ctx context.Context, mux *runtime.ServeMux, endpoint string,
-	opts []grpc.DialOption) (err error)) Service {
+		opts []grpc.DialOption) (err error)) Service {
 	return &ServiceImpl[T]{
 		srv:                           srv,
 		regServiceServer:              regServiceServer,

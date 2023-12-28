@@ -3,9 +3,8 @@ package logging
 import (
 	"context"
 
+	"github.com/KyberNetwork/kutils/klog"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
-
-	"github.com/KyberNetwork/service-framework/pkg/observe/klog"
 )
 
 func Logger() logging.LoggerFunc {

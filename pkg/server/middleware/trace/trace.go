@@ -3,13 +3,13 @@ package trace
 import (
 	"context"
 
+	"github.com/KyberNetwork/kutils/klog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/KyberNetwork/service-framework/pkg/common"
-	"github.com/KyberNetwork/service-framework/pkg/observe/klog"
 	"github.com/KyberNetwork/service-framework/pkg/observe/kmetric"
 )
 

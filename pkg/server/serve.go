@@ -4,6 +4,7 @@ import (
 	"context"
 	"runtime/debug"
 
+	"github.com/KyberNetwork/kutils/klog"
 	kybermetric "github.com/KyberNetwork/kyber-trace-go/pkg/metric"
 	kybertracer "github.com/KyberNetwork/kyber-trace-go/pkg/tracer"
 	_ "github.com/KyberNetwork/kyber-trace-go/tools"
@@ -25,7 +26,6 @@ import (
 
 	"github.com/KyberNetwork/service-framework/pkg/common"
 	"github.com/KyberNetwork/service-framework/pkg/observe"
-	"github.com/KyberNetwork/service-framework/pkg/observe/klog"
 	"github.com/KyberNetwork/service-framework/pkg/observe/kmetric"
 	"github.com/KyberNetwork/service-framework/pkg/server/grpcserver"
 	logmiddleware "github.com/KyberNetwork/service-framework/pkg/server/middleware/logging"

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/KyberNetwork/kutils/klog"
 	"github.com/KyberNetwork/kyber-trace-go/pkg/tracer"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -13,8 +14,6 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-
-	"github.com/KyberNetwork/service-framework/pkg/observe/klog"
 )
 
 const EthCloseDelay = time.Minute

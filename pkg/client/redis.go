@@ -4,12 +4,11 @@ import (
 	"context"
 	"time"
 
+	"github.com/KyberNetwork/kutils/klog"
 	"github.com/KyberNetwork/kyber-trace-go/pkg/metric"
 	"github.com/KyberNetwork/kyber-trace-go/pkg/tracer"
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
-
-	"github.com/KyberNetwork/service-framework/pkg/observe/klog"
 )
 
 const RedisCloseDelay = time.Minute
