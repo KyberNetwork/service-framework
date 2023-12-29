@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/KyberNetwork/kutils/klog"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -57,9 +58,15 @@ func NewService[T any](srv T,
 // NewServer return a new grpc server
 func NewServer(cfg *Config, appMode AppMode, opt ...grpc.ServerOption) *Server {
 	if cfg.GRPC.Host == "" && cfg.GRPC.Port == 0 {
-		*cfg = *DefaultConfig()
+		cfg.GRPC = DefaultGRPC
+	}
+	if cfg.HTTP.Host == "" && cfg.HTTP.Port == 0 {
+		cfg.HTTP = DefaultHTTP
 	}
 	return &Server{
+		cfg:     cfg,
+		AppMode: appMode,
+
 		gRPC: grpc.NewServer(opt...),
 		mux: runtime.NewServeMux(
 			runtime.WithIncomingHeaderMatcher(CustomHeaderMatcher),
@@ -75,9 +82,6 @@ func NewServer(cfg *Config, appMode AppMode, opt ...grpc.ServerOption) *Server {
 						DiscardUnknown: true,
 					},
 				})),
-
-		cfg:     cfg,
-		AppMode: appMode,
 	}
 }
 
@@ -95,45 +99,75 @@ func (s *Server) Register(services ...Service) error {
 }
 
 // Serve server listen for HTTP and GRPC
-func (s *Server) Serve() error {
+func (s *Server) Serve(ctx context.Context) (err error) {
 	stop := make(chan os.Signal, 1)
 	errCh := make(chan error)
-	signal.Notify(stop, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-	httpMux := http.NewServeMux()
-	httpMux.Handle("/", s.mux)
+	signal.Notify(stop, os.Interrupt, os.Kill, syscall.SIGTERM)
 
-	httpServer := http.Server{
-		Addr:    s.cfg.HTTP.String(),
-		Handler: httpMux,
-	}
-	go func() {
-		if err := httpServer.ListenAndServe(); err != nil {
-			errCh <- err
-		}
-	}()
 	go func() {
 		listener, err := net.Listen("tcp", s.cfg.GRPC.String())
 		if err != nil {
 			errCh <- err
 			return
 		}
-		if err := s.gRPC.Serve(listener); err != nil {
-			errCh <- err
+		errCh <- s.gRPC.Serve(listener)
+	}()
+	defer s.gRPC.GracefulStop()
+
+	httpMux := http.NewServeMux()
+	basePath := normalizeBasePath(s.cfg.BasePath)
+	httpMux.Handle(basePath+"/", stripBasePath(s.mux, basePath))
+	httpServer := http.Server{
+		Addr:    s.cfg.HTTP.String(),
+		Handler: httpMux,
+	}
+	go func() {
+		errCh <- httpServer.ListenAndServe()
+	}()
+	defer func() {
+		if err := httpServer.Shutdown(ctx); err != nil {
+			klog.Errorf(ctx, "failed to shutdown http server: %v", err)
 		}
 	}()
-	for {
-		select {
-		case <-stop:
-			ctx := context.Background()
-			if err := httpServer.Shutdown(ctx); err != nil {
-				return err
-			}
-			s.gRPC.GracefulStop()
-			return nil
-		case err := <-errCh:
-			return err
-		}
+
+	klog.WithFields(ctx, klog.Fields{
+		"grpc_addr": s.cfg.GRPC.String(),
+		"http_addr": s.cfg.HTTP.String()}).Info("Starting server...")
+	select {
+	case sig := <-stop:
+		klog.Infof(ctx, "Received %s signal, stopping server...", sig.String())
+		return nil
+	case err = <-errCh:
+		klog.Infof(ctx, "Received fatal error %v, stopping server...", err)
+		return err
 	}
+}
+
+func normalizeBasePath(path string) string {
+	if path == "" {
+		return ""
+	}
+	if path[0] != '/' {
+		path = "/" + path
+	}
+	if path[len(path)-1] == '/' {
+		return path[:len(path)-1]
+	}
+	return path
+}
+
+type Handler func(http.ResponseWriter, *http.Request)
+
+func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h(w, r)
+}
+
+func stripBasePath(mux *runtime.ServeMux, path string) http.Handler {
+	return Handler(func(w http.ResponseWriter, r *http.Request) {
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, path)
+		r.URL.RawPath = strings.TrimPrefix(r.URL.RawPath, path)
+		mux.ServeHTTP(w, r)
+	})
 }
 
 var passThruHeaders = map[string]struct{}{

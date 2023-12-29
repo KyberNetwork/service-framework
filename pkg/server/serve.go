@@ -34,7 +34,7 @@ import (
 
 var internalServerErr = status.New(codes.Internal, "Internal server error")
 
-func Serve(ctx context.Context, cfg *grpcserver.Config, services ...grpcserver.Service) {
+func Serve(ctx context.Context, cfg grpcserver.Config, services ...grpcserver.Service) {
 	defer shutdownKyberTrace()
 
 	appMode := grpcserver.GetAppMode(cfg.Mode)
@@ -69,16 +69,13 @@ func Serve(ctx context.Context, cfg *grpcserver.Config, services ...grpcserver.S
 		grpc.ChainUnaryInterceptor(unaryOpts...),
 		grpc.ChainStreamInterceptor(streamOpts...),
 	}
-	s := grpcserver.NewServer(cfg, appMode, serverOptions...)
+	s := grpcserver.NewServer(&cfg, appMode, serverOptions...)
 
 	if err := s.Register(services...); err != nil {
 		klog.Fatalf(ctx, "Error register servers %v", err)
 	}
 
-	klog.WithFields(ctx, klog.Fields{
-		"grpc_addr": cfg.GRPC.String(),
-		"http_addr": cfg.HTTP.String()}).Info("Starting server...")
-	if err := s.Serve(); err != nil {
+	if err := s.Serve(ctx); err != nil {
 		klog.Fatalf(ctx, "Error start server %v", err)
 	}
 }

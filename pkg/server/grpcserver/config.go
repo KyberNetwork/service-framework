@@ -8,19 +8,16 @@ import (
 	"google.golang.org/grpc"
 )
 
-// DefaultConfig return a default server config
-func DefaultConfig() *Config {
-	return &Config{
-		GRPC: Listen{
-			Host: "0.0.0.0",
-			Port: 9080,
-		},
-		HTTP: Listen{
-			Host: "0.0.0.0",
-			Port: 8080,
-		},
+var (
+	DefaultGRPC = Listen{
+		Host: "0.0.0.0",
+		Port: 9080,
 	}
-}
+	DefaultHTTP = Listen{
+		Host: "0.0.0.0",
+		Port: 8080,
+	}
+)
 
 type (
 	Server struct {
@@ -32,10 +29,11 @@ type (
 
 	// Config hold http/grpc server config
 	Config struct {
-		Mode string
-		GRPC Listen
-		HTTP Listen
-		Flag Flag
+		Mode     string
+		GRPC     Listen
+		HTTP     Listen
+		BasePath string
+		Flag     Flag
 	}
 
 	Flag struct {
