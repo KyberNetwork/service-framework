@@ -5,18 +5,23 @@ import (
 	"os"
 	"time"
 
+	"github.com/KyberNetwork/kyber-trace-go/pkg/constant"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/validator"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+
+	"github.com/KyberNetwork/service-framework/pkg/common"
+	"github.com/KyberNetwork/service-framework/pkg/observe"
+	"github.com/KyberNetwork/service-framework/pkg/observe/kmetric"
 )
 
 const (
 	defaultGRPCBaseURL = "localhost:9080"
-	ChainIDHeaderKey   = "X-Chain-ID"
-	ClientIDHeaderKey  = "X-Client-ID"
 )
 
 type Config struct {
@@ -126,6 +131,7 @@ func (c *Config) dialOptions() []grpc.DialOption {
 	unaryInterceptors := []grpc.UnaryClientInterceptor{
 		validator.UnaryClientInterceptor(),
 		RequestHeadersInterceptor(requestHeaders),
+		MetricsInterceptor(),
 	}
 	if c.Timeout != 0 {
 		unaryInterceptors = append(unaryInterceptors, TimeoutInterceptor(c.Timeout))
@@ -133,23 +139,25 @@ func (c *Config) dialOptions() []grpc.DialOption {
 
 	dialOpts = append(dialOpts, grpc.WithChainUnaryInterceptor(unaryInterceptors...))
 
+	observe.EnsureTracerProvider()
+	dialOpts = append(dialOpts, grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
+
 	return append(dialOpts, c.DialOptions...)
 }
 
 // requestHeaders generates the request headers based on the provided configuration.
 func (c *Config) requestHeaders() map[string]string {
-	headers := c.Headers
-	if headers == nil {
-		headers = make(map[string]string)
+	if c.Headers == nil {
+		c.Headers = make(map[string]string)
 	}
-	if c.ClientID != "" {
-		headers[ClientIDHeaderKey] = c.ClientID
+	if c.ClientID == "" {
+		c.ClientID = os.Getenv(constant.EnvKeyOtelServiceName)
 	}
-	if headers[ClientIDHeaderKey] == "" {
-		hostname, _ := os.Hostname()
-		headers[ClientIDHeaderKey] = hostname
+	if c.ClientID == "" {
+		c.ClientID, _ = os.Hostname()
 	}
-	return headers
+	c.Headers[common.HeaderXClientId] = c.ClientID
+	return c.Headers
 }
 
 func (c *Client[_]) Close() error {
@@ -182,6 +190,34 @@ func getForcedTimeout(callOptions []grpc.CallOption) (time.Duration, bool) {
 	return 0, false
 }
 
+// RequestHeadersInterceptor intercepts gRPC unary client
+// invocations and adds custom headers to the outgoing request.
+func RequestHeadersInterceptor(header map[string]string) grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn,
+		invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		md := metadata.New(header)
+		ctx = metadata.NewOutgoingContext(ctx, md)
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
+}
+
+// MetricsInterceptor intercepts gRPC unary client invocations to record metrics.
+func MetricsInterceptor() grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn,
+		invoker grpc.UnaryInvoker, opts ...grpc.CallOption) (err error) {
+		defer func() {
+			code := codes.OK
+			if reply, ok := reply.(interface{ GetCode() int32 }); ok {
+				code = codes.Code(reply.GetCode())
+			} else if err != nil {
+				code = codes.Unknown
+			}
+			kmetric.IncOutgoingRequest(ctx, kmetric.AttrMethod, method, kmetric.AttrCode, code.String())
+		}()
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
+}
+
 // TimeoutInterceptor intercepts unary client requests and adds a timeout to the context.
 func TimeoutInterceptor(t time.Duration) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn,
@@ -198,17 +234,6 @@ func TimeoutInterceptor(t time.Duration) grpc.UnaryClientInterceptor {
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 
-		return invoker(ctx, method, req, reply, cc, opts...)
-	}
-}
-
-// RequestHeadersInterceptor intercepts gRPC unary client
-// invocations and adds custom headers to the outgoing request.
-func RequestHeadersInterceptor(header map[string]string) grpc.UnaryClientInterceptor {
-	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn,
-		invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		md := metadata.New(header)
-		ctx = metadata.NewOutgoingContext(ctx, md)
 		return invoker(ctx, method, req, reply, cc, opts...)
 	}
 }
