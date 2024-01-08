@@ -20,6 +20,13 @@ type RedisCfg struct {
 
 func (*RedisCfg) OnUpdate(old, new *RedisCfg) {
 	ctx := context.Background()
+	if old != nil && old.C != nil {
+		time.AfterFunc(RedisCloseDelay, func() {
+			if err := old.C.Close(); err != nil {
+				klog.Errorf(ctx, "RedisCfg.OnUpdate|old.C.Close() failed|err=%v", err)
+			}
+		})
+	}
 	new.C = redis.NewUniversalClient(&new.UniversalOptions)
 	if metric.Provider() != nil {
 		if err := redisotel.InstrumentMetrics(new.C); err != nil {
@@ -30,12 +37,5 @@ func (*RedisCfg) OnUpdate(old, new *RedisCfg) {
 		if err := redisotel.InstrumentTracing(new.C); err != nil {
 			klog.Errorf(ctx, "RedisCfg.OnUpdate|redisotel.InstrumentTracing failed|err=%v", err)
 		}
-	}
-	if old != nil && old.C != nil {
-		time.AfterFunc(RedisCloseDelay, func() {
-			if err := old.C.Close(); err != nil {
-				klog.Errorf(ctx, "RedisCfg.OnUpdate|old.C.Close() failed|err=%v", err)
-			}
-		})
 	}
 }

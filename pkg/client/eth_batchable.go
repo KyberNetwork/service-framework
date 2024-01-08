@@ -28,14 +28,14 @@ func (*BatchableEthCfg) OnUpdate(old, new *BatchableEthCfg) {
 		new.EthCfg.OnUpdate(&old.EthCfg, &new.EthCfg)
 		new.BackOff.OnUpdate(old.BackOff, new.BackOff)
 	}
-	new.C = NewBatchableEthClient(new.EthCfg.C, func() (time.Duration, int) {
-		return new.BatchRate, new.BatchCnt
-	}, new.BackOff.BackOff)
 	if old != nil && old.C != nil {
 		time.AfterFunc(EthCloseDelay, func() {
 			old.C.Close()
 		})
 	}
+	new.C = NewBatchableEthClient(new.EthCfg.C, func() (time.Duration, int) {
+		return new.BatchRate, new.BatchCnt
+	}, new.BackOff.BackOff)
 }
 
 type BatchableEthClient struct {
