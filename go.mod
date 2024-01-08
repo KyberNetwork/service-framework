@@ -3,7 +3,7 @@ module github.com/KyberNetwork/service-framework
 go 1.20
 
 require (
-	github.com/KyberNetwork/kutils v0.2.0
+	github.com/KyberNetwork/kutils v0.2.1
 	github.com/KyberNetwork/kyber-trace-go v0.1.1
 	github.com/cenkalti/backoff/v4 v4.2.1
 	github.com/ethereum/go-ethereum v1.13.7

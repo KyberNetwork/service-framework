@@ -26,15 +26,16 @@ type EthCfg struct {
 
 func (*EthCfg) OnUpdate(old, new *EthCfg) {
 	ctx := context.Background()
+	if old != nil && old.C != nil {
+		oldC := old.C
+		time.AfterFunc(EthCloseDelay, func() {
+			oldC.Close()
+		})
+	}
 	var err error
 	new.C, err = new.Dial(context.Background())
 	if err != nil {
 		klog.Errorf(ctx, "EthCfg.OnUpdate|new.Dial failed: %v", err)
-	}
-	if old != nil && old.C != nil {
-		time.AfterFunc(EthCloseDelay, func() {
-			old.C.Close()
-		})
 	}
 }
 
