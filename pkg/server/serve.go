@@ -9,7 +9,6 @@ import (
 	kybertracer "github.com/KyberNetwork/kyber-trace-go/pkg/tracer"
 	_ "github.com/KyberNetwork/kyber-trace-go/tools"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors"
-	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/selector"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/validator"
@@ -28,7 +27,7 @@ import (
 	"github.com/KyberNetwork/service-framework/pkg/observe"
 	"github.com/KyberNetwork/service-framework/pkg/observe/kmetric"
 	"github.com/KyberNetwork/service-framework/pkg/server/grpcserver"
-	logmiddleware "github.com/KyberNetwork/service-framework/pkg/server/middleware/logging"
+	"github.com/KyberNetwork/service-framework/pkg/server/middleware/logging"
 	"github.com/KyberNetwork/service-framework/pkg/server/middleware/trace"
 )
 
@@ -44,21 +43,21 @@ func Serve(ctx context.Context, cfg grpcserver.Config, services ...grpcserver.Se
 	}
 	var streamOpts []grpc.StreamServerInterceptor
 
-	loggingLogger := logmiddleware.Logger()
-	loggingOpts := getLoggingOptions(cfg.Flag)
+	loggingLogger := logging.DefaultLogger(logging.KlogLogger,
+		logging.IgnoreReq(cfg.Log.IgnoreReq...), logging.IgnoreResp(cfg.Log.IgnoreResp...))
 	recoveryOpt := recovery.WithRecoveryHandler(func(err any) error {
 		klog.WithFields(ctx, klog.Fields{"error": err}).Errorf("recovered from:\n%s", string(debug.Stack()))
 		kmetric.IncPanicTotal(context.Background())
 		return internalServerErr.Err()
 	})
 	unaryOpts = append(unaryOpts,
-		selector.UnaryServerInterceptor(logging.UnaryServerInterceptor(loggingLogger, loggingOpts...),
+		selector.UnaryServerInterceptor(logging.UnaryServerInterceptor(loggingLogger),
 			selector.MatchFunc(healthSkip)),
 		validator.UnaryServerInterceptor(),
 		recovery.UnaryServerInterceptor(recoveryOpt),
 	)
 	streamOpts = append(streamOpts,
-		selector.StreamServerInterceptor(logging.StreamServerInterceptor(loggingLogger, loggingOpts...),
+		selector.StreamServerInterceptor(logging.StreamServerInterceptor(loggingLogger),
 			selector.MatchFunc(healthSkip)),
 		validator.StreamServerInterceptor(),
 		recovery.StreamServerInterceptor(recoveryOpt))
@@ -160,33 +159,5 @@ func shutdownMetric(ctx context.Context) {
 		if err != nil {
 			klog.Errorf(ctx, "Failed to shutdown metric: %v", err)
 		}
-	}
-}
-
-var disabledLoggingFields = []string{
-	logging.SystemTag[0],
-	logging.ComponentFieldKey,
-}
-
-func getLoggingOptions(grpc grpcserver.Flag) []logging.Option {
-	loggableEvents := []logging.LoggableEvent{logging.FinishCall}
-	if !grpc.DisableLogRequest {
-		loggableEvents = append(loggableEvents, logging.PayloadReceived)
-	}
-	if !grpc.DisableLogResponse {
-		loggableEvents = append(loggableEvents, logging.PayloadSent)
-	}
-
-	return []logging.Option{
-		logging.WithDisableLoggingFields(disabledLoggingFields...),
-		logging.WithFieldsFromContext(func(ctx context.Context) logging.Fields {
-			md, _ := metadata.FromIncomingContext(ctx)
-			forwardedForLst := md[common.HeaderXForwardedFor]
-			if len(forwardedForLst) == 0 {
-				return nil
-			}
-			return logging.Fields{common.HeaderXForwardedFor, forwardedForLst}
-		}),
-		logging.WithLogOnEvents(loggableEvents...),
 	}
 }

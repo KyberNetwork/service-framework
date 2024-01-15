@@ -11,6 +11,8 @@ import (
 
 	"github.com/KyberNetwork/kutils/klog"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
@@ -117,9 +119,10 @@ func (s *Server) Serve(ctx context.Context) (err error) {
 	httpMux := http.NewServeMux()
 	basePath := normalizeBasePath(s.cfg.BasePath)
 	httpMux.Handle(basePath+"/", stripBasePath(s.mux, basePath))
-	httpServer := http.Server{
+	h2s := &http2.Server{}
+	httpServer := &http.Server{
 		Addr:    s.cfg.HTTP.String(),
-		Handler: httpMux,
+		Handler: h2c.NewHandler(httpMux, h2s),
 	}
 	go func() {
 		errCh <- httpServer.ListenAndServe()

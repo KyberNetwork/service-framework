@@ -33,12 +33,12 @@ type (
 		GRPC     Listen
 		HTTP     Listen
 		BasePath string
-		Flag     Flag
+		Log      Log
 	}
 
-	Flag struct {
-		DisableLogRequest  bool
-		DisableLogResponse bool
+	Log struct {
+		IgnoreReq  []string
+		IgnoreResp []string
 	}
 
 	// Listen config for host/port socket listener
