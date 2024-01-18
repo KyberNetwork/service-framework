@@ -26,7 +26,7 @@ func EnsureTracerProvider() {
 				constant.OtelDefaultServiceVersion)),
 		))
 	if err == nil {
-		resources, err = resource.Merge(resources, extraResources)
+		resources, _ = resource.Merge(resources, extraResources)
 	}
 	tracerProvider := sdktrace.NewTracerProvider(
 		sdktrace.WithResource(resources),

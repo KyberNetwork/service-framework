@@ -49,6 +49,9 @@ func IgnoreResp(ignoreResp ...string) func(opt *opt) {
 const ignored = "<...>"
 
 func DefaultLogger(loggerFromCtx func(context.Context) Logger, opts ...func(opt *opt)) LoggerFunc {
+	if loggerFromCtx == nil {
+		loggerFromCtx = KlogLogger
+	}
 	opt := &opt{
 		ignoreReq:  make(map[string]struct{}),
 		ignoreResp: make(map[string]struct{}),
