@@ -33,6 +33,10 @@ import (
 
 var internalServerErr = status.New(codes.Internal, "Internal server error")
 
+// Serve starts gRPC server and HTTP grpc gateway server. It blocks until os.Interrupt or syscall.SIGTERM.
+// Example usage:
+//
+//	server.Serve(ctx, cfg, server.WithServices(service1, service2), server.WithLogger(myLoggerFactory))
 func Serve(ctx context.Context, cfg grpcserver.Config, opts ...OptFn) {
 	defer shutdownKyberTrace()
 
