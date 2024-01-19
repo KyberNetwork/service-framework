@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/KyberNetwork/kutils/klog"
+	"github.com/KyberNetwork/logger"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
@@ -21,15 +22,30 @@ type InterceptorLogger interface {
 // LoggerFunc is a function that also implements InterceptorLogger interface.
 type LoggerFunc func(ctx context.Context, meta CallMeta, req any, resp any, err error, duration time.Duration)
 
+// Log implements InterceptorLogger interface by triggering itself.
 func (f LoggerFunc) Log(ctx context.Context, meta CallMeta, req any, resp any, err error, duration time.Duration) {
 	f(ctx, meta, req, resp, err, duration)
 }
 
+// opt is the option struct for logging interceptors.
 type opt struct {
 	ignoreReq  map[string]struct{}
 	ignoreResp map[string]struct{}
 }
 
+// newOpt returns a new opt struct with the given option funcs.
+func newOpt(opts ...func(opt *opt)) *opt {
+	opt := &opt{
+		ignoreReq:  make(map[string]struct{}),
+		ignoreResp: make(map[string]struct{}),
+	}
+	for _, o := range opts {
+		o(opt)
+	}
+	return opt
+}
+
+// IgnoreReq ignores logging requests for commands with given specified full method names.
 func IgnoreReq(ignoreReq ...string) func(opt *opt) {
 	return func(opt *opt) {
 		for _, v := range ignoreReq {
@@ -38,6 +54,7 @@ func IgnoreReq(ignoreReq ...string) func(opt *opt) {
 	}
 }
 
+// IgnoreResp ignores logging responses for commands with given specified full method names.
 func IgnoreResp(ignoreResp ...string) func(opt *opt) {
 	return func(opt *opt) {
 		for _, v := range ignoreResp {
@@ -46,16 +63,17 @@ func IgnoreResp(ignoreResp ...string) func(opt *opt) {
 	}
 }
 
+// ignored is a string that indicates that the request or response is ignored.
 const ignored = "<...>"
 
+// DefaultLogger is the default logging interceptor which logs requests and responses in plain format.
 func DefaultLogger(loggerFromCtx func(context.Context) Logger, opts ...func(opt *opt)) LoggerFunc {
-	opt := &opt{
-		ignoreReq:  make(map[string]struct{}),
-		ignoreResp: make(map[string]struct{}),
+	if loggerFromCtx == nil {
+		loggerFromCtx = func(ctx context.Context) Logger {
+			return klog.LoggerFromCtx(ctx)
+		}
 	}
-	for _, o := range opts {
-		o(opt)
-	}
+	opt := newOpt(opts...)
 	return func(ctx context.Context, meta CallMeta, req any, resp any, err error, duration time.Duration) {
 		code := status.Code(err)
 		if _, ok := opt.ignoreReq[meta.FullMethod]; ok {
@@ -74,8 +92,38 @@ func DefaultLogger(loggerFromCtx func(context.Context) Logger, opts ...func(opt 
 	}
 }
 
-func KlogLogger(ctx context.Context) Logger {
-	return klog.LoggerFromCtx(ctx)
+// FieldsLogger is the fields-enabled logging interceptor which logs requests and responses in JSON format.
+func FieldsLogger(loggerFromCtx func(context.Context) logger.Logger, opts ...func(opt *opt)) LoggerFunc {
+	if loggerFromCtx == nil {
+		loggerFromCtx = func(ctx context.Context) logger.Logger {
+			return klog.LoggerFromCtx(ctx)
+		}
+	}
+	opt := newOpt(opts...)
+	return func(ctx context.Context, meta CallMeta, req any, resp any, err error, duration time.Duration) {
+		code := status.Code(err)
+		if _, ok := opt.ignoreReq[meta.FullMethod]; ok {
+			req = ignored
+		}
+		if _, ok := opt.ignoreResp[meta.FullMethod]; ok {
+			resp = ignored
+		}
+		from := metadata.ValueFromIncomingContext(ctx, common.HeaderXForwardedFor)
+		if peerInfo, ok := peer.FromContext(ctx); ok {
+			from = append(from, peerInfo.Addr.String())
+		}
+		logFields := logger.Fields{
+			"cmd":  meta.FullMethod,
+			"code": code,
+			"err":  err,
+			"req":  req,
+			"resp": resp,
+			"dur":  duration,
+			"from": from,
+		}
+		log := loggerFromCtx(ctx).WithFields(logFields)
+		Logf(log, code, "response sent")
+	}
 }
 
 // Logger is a logger with infof/warnf/errorf methods.

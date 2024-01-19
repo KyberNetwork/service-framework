@@ -104,7 +104,7 @@ func (s *Server) Register(services ...Service) error {
 func (s *Server) Serve(ctx context.Context) (err error) {
 	stop := make(chan os.Signal, 1)
 	errCh := make(chan error)
-	signal.Notify(stop, os.Interrupt, os.Kill, syscall.SIGTERM)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
 		listener, err := net.Listen("tcp", s.cfg.GRPC.String())

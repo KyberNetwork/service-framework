@@ -33,8 +33,14 @@ import (
 
 var internalServerErr = status.New(codes.Internal, "Internal server error")
 
-func Serve(ctx context.Context, cfg grpcserver.Config, services ...grpcserver.Service) {
+// Serve starts gRPC server and HTTP grpc gateway server. It blocks until os.Interrupt or syscall.SIGTERM.
+// Example usage:
+//
+//	server.Serve(ctx, cfg, server.WithServices(service1, service2), server.WithLogger(myLoggerFactory))
+func Serve(ctx context.Context, cfg grpcserver.Config, opts ...OptFn) {
 	defer shutdownKyberTrace()
+
+	opt := new(option).Build(opts...)
 
 	appMode := grpcserver.GetAppMode(cfg.Mode)
 	isDevMode := appMode == grpcserver.Development
@@ -43,8 +49,11 @@ func Serve(ctx context.Context, cfg grpcserver.Config, services ...grpcserver.Se
 	}
 	var streamOpts []grpc.StreamServerInterceptor
 
-	loggingLogger := logging.DefaultLogger(logging.KlogLogger,
-		logging.IgnoreReq(cfg.Log.IgnoreReq...), logging.IgnoreResp(cfg.Log.IgnoreResp...))
+	loggingLogger := opt.loggingInterceptor
+	if loggingLogger == nil {
+		loggingLogger = logging.DefaultLogger(opt.logger,
+			logging.IgnoreReq(cfg.Log.IgnoreReq...), logging.IgnoreResp(cfg.Log.IgnoreResp...))
+	}
 	recoveryOpt := recovery.WithRecoveryHandler(func(err any) error {
 		klog.WithFields(ctx, klog.Fields{"error": err}).Errorf("recovered from:\n%s", string(debug.Stack()))
 		kmetric.IncPanicTotal(context.Background())
@@ -70,7 +79,7 @@ func Serve(ctx context.Context, cfg grpcserver.Config, services ...grpcserver.Se
 	}
 	s := grpcserver.NewServer(&cfg, appMode, serverOptions...)
 
-	if err := s.Register(services...); err != nil {
+	if err := s.Register(opt.services...); err != nil {
 		klog.Fatalf(ctx, "Error register servers %v", err)
 	}
 
