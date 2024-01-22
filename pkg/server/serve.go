@@ -36,29 +36,26 @@ var internalServerErr = status.New(codes.Internal, "Internal server error")
 // Serve starts gRPC server and HTTP grpc gateway server. It blocks until os.Interrupt or syscall.SIGTERM.
 // Example usage:
 //
-//	server.Serve(ctx, cfg, server.WithServices(service1, service2), server.WithLogger(myLoggerFactory))
-func Serve(ctx context.Context, cfg grpcserver.Config, opts ...OptFn) {
+//	server.Serve(ctx, cfg, service1, service2, server.WithLogger(myLoggerFactory))
+func Serve(ctx context.Context, cfg grpcserver.Config, opts ...grpcserver.Opt) {
 	defer shutdownKyberTrace()
 
-	opt := new(option).Build(opts...)
+	cfg = cfg.Apply(opts...)
 
-	appMode := grpcserver.GetAppMode(cfg.Mode)
-	isDevMode := appMode == grpcserver.Development
+	isDevMode := cfg.Mode == grpcserver.Development
 	unaryOpts := []grpc.UnaryServerInterceptor{
 		trace.UnaryServerInterceptor(isDevMode, internalServerErr),
 	}
 	var streamOpts []grpc.StreamServerInterceptor
 
-	loggingLogger := opt.loggingInterceptor
-	if loggingLogger == nil {
-		loggingLogger = logging.DefaultLogger(opt.logger,
-			logging.IgnoreReq(cfg.Log.IgnoreReq...), logging.IgnoreResp(cfg.Log.IgnoreResp...))
-	}
+	loggingLogger := cfg.LoggingInterceptor()
 	recoveryOpt := recovery.WithRecoveryHandler(func(err any) error {
 		klog.WithFields(ctx, klog.Fields{"error": err}).Errorf("recovered from:\n%s", string(debug.Stack()))
 		kmetric.IncPanicTotal(context.Background())
 		return internalServerErr.Err()
 	})
+
+	otelGrpcStatHandler := getOtelGrpcStatsHandler()
 	unaryOpts = append(unaryOpts,
 		selector.UnaryServerInterceptor(logging.UnaryServerInterceptor(loggingLogger),
 			selector.MatchFunc(healthSkip)),
@@ -71,15 +68,15 @@ func Serve(ctx context.Context, cfg grpcserver.Config, opts ...OptFn) {
 		validator.StreamServerInterceptor(),
 		recovery.StreamServerInterceptor(recoveryOpt))
 
-	otelGrpcStatHandler := getOtelGrpcStatsHandler()
-	serverOptions := []grpc.ServerOption{
+	serverOptions := append([]grpc.ServerOption{
 		grpc.StatsHandler(otelGrpcStatHandler),
 		grpc.ChainUnaryInterceptor(unaryOpts...),
 		grpc.ChainStreamInterceptor(streamOpts...),
-	}
-	s := grpcserver.NewServer(&cfg, appMode, serverOptions...)
+	}, cfg.GRPCServerOptions()...)
 
-	if err := s.Register(opt.services...); err != nil {
+	s := grpcserver.NewServer(&cfg, serverOptions...)
+
+	if err := s.Register(cfg.Services()...); err != nil {
 		klog.Fatalf(ctx, "Error register servers %v", err)
 	}
 
