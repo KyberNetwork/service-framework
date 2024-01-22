@@ -33,3 +33,18 @@ func WithLogger(logger func(ctx context.Context) logging.Logger) Opt {
 func WithGRPCServerOptions(options ...grpc.ServerOption) Opt {
 	return grpcserver.WithGRPCServerOptions(options...)
 }
+
+// WithPassThruIncomingHeaders adds incoming headers to pass through from http to grpc
+func WithPassThruIncomingHeaders(headers ...string) Opt {
+	return grpcserver.WithPassThruIncomingHeaders(headers...)
+}
+
+// WithPassThruOutgoingHeaders adds outgoing headers to pass through from grpc to http
+func WithPassThruOutgoingHeaders(headers ...string) Opt {
+	return grpcserver.WithPassThruOutgoingHeaders(headers...)
+}
+
+// WithHTTPMarshalerOptions allows user to add custom http marshaler options
+func WithHTTPMarshalerOptions(options grpcserver.HttpMarshalerOptions) Opt {
+	return grpcserver.WithHTTPMarshalerOptions(options)
+}

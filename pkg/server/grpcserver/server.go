@@ -2,6 +2,7 @@ package grpcserver
 
 import (
 	"context"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -78,24 +79,28 @@ func NewServer(cfg *Config, opt ...grpc.ServerOption) *Server {
 	if cfg.HTTP.Host == "" && cfg.HTTP.Port == 0 {
 		cfg.HTTP = DefaultHTTP
 	}
-	return &Server{
-		cfg: cfg,
+	marshalerOptions := cfg.httpMarshalerOptions
 
+	return &Server{
+		cfg:  cfg,
 		gRPC: grpc.NewServer(opt...),
 		mux: runtime.NewServeMux(
-			runtime.WithIncomingHeaderMatcher(CustomHeaderMatcher),
-			runtime.WithOutgoingHeaderMatcher(CustomHeaderMatcher),
-			runtime.WithMarshalerOption(runtime.MIMEWildcard,
-				&runtime.JSONPb{
-					MarshalOptions: protojson.MarshalOptions{
-						UseProtoNames:   false,
-						UseEnumNumbers:  false,
-						EmitUnpopulated: false,
-					},
-					UnmarshalOptions: protojson.UnmarshalOptions{
-						DiscardUnknown: true,
-					},
-				})),
+			runtime.WithIncomingHeaderMatcher(CustomHeaderMatcher(cfg.passThruHeaders.incoming...)),
+			runtime.WithOutgoingHeaderMatcher(CustomHeaderMatcher(cfg.passThruHeaders.outgoing...)),
+			runtime.WithMarshalerOption(runtime.MIMEWildcard, &runtime.JSONPb{
+				MarshalOptions: protojson.MarshalOptions{
+					Multiline:       marshalerOptions.Multiline,
+					Indent:          marshalerOptions.Indent,
+					AllowPartial:    marshalerOptions.AllowPartialResp,
+					UseProtoNames:   marshalerOptions.UseProtoNames,
+					UseEnumNumbers:  marshalerOptions.UseEnumNumbers,
+					EmitUnpopulated: marshalerOptions.EmitUnpopulated,
+				},
+				UnmarshalOptions: protojson.UnmarshalOptions{
+					AllowPartial:   marshalerOptions.AllowPartialResp,
+					DiscardUnknown: !marshalerOptions.DisallowUnknown,
+				},
+			})),
 	}
 }
 
@@ -185,16 +190,22 @@ func stripBasePath(mux *runtime.ServeMux, path string) http.Handler {
 	})
 }
 
-var passThruHeaders = map[string]struct{}{
+var defaultPassThruHeaders = map[string]struct{}{
 	common.HeaderXForwardedFor: {},
 	common.HeaderXClientId:     {},
 	common.HeaderXTraceId:      {},
 	common.HeaderXRequestId:    {},
 }
 
-func CustomHeaderMatcher(key string) (string, bool) {
-	if _, ok := passThruHeaders[strings.ToLower(key)]; ok {
-		return key, true
+func CustomHeaderMatcher(userHeaders ...string) func(key string) (string, bool) {
+	passThruHeaders := maps.Clone(defaultPassThruHeaders)
+	for _, userHeader := range userHeaders {
+		passThruHeaders[strings.ToLower(userHeader)] = struct{}{}
 	}
-	return runtime.DefaultHeaderMatcher(key)
+	return func(key string) (string, bool) {
+		if _, ok := passThruHeaders[strings.ToLower(key)]; ok {
+			return key, true
+		}
+		return runtime.DefaultHeaderMatcher(key)
+	}
 }

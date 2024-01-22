@@ -41,6 +41,11 @@ type (
 		loggingInterceptor logging.InterceptorLogger            // to override default interceptor logger
 		logger             func(context.Context) logging.Logger // to override logger used by default interceptor logger
 		grpcServerOptions  []grpc.ServerOption                  // additional grpc server options
+		passThruHeaders    struct { // headers to pass through from http to grpc
+			incoming []string // incoming headers (from requests)
+			outgoing []string // outgoing headers (in responses)
+		}
+		httpMarshalerOptions HttpMarshalerOptions
 	}
 
 	Log struct {
@@ -52,6 +57,18 @@ type (
 	Listen struct {
 		Host string
 		Port int
+	}
+
+	// HttpMarshalerOptions config for http marshaler
+	HttpMarshalerOptions struct { // http marshaler options. see google.golang.org/protobuf/encoding/protojson
+		DisallowUnknown  bool   // disallow unknown fields in request
+		AllowPartialReq  bool   // allow missing required fields in request
+		AllowPartialResp bool   // allow missing required fields in response
+		Multiline        bool   // multiline response
+		Indent           string // indent for multiline
+		UseProtoNames    bool   // use proto names instead of lowerCamelCase
+		UseEnumNumbers   bool   // use enum number instead of name
+		EmitUnpopulated  bool   // emit unpopulated fields with zero values
 	}
 )
 
@@ -123,5 +140,26 @@ func WithLogger(logger func(ctx context.Context) logging.Logger) Opt {
 func WithGRPCServerOptions(options ...grpc.ServerOption) Opt {
 	return OptFn(func(c *Config) {
 		c.grpcServerOptions = append(c.grpcServerOptions, options...)
+	})
+}
+
+// WithPassThruIncomingHeaders adds incoming headers to pass through from http to grpc
+func WithPassThruIncomingHeaders(headers ...string) Opt {
+	return OptFn(func(c *Config) {
+		c.passThruHeaders.incoming = append(c.passThruHeaders.incoming, headers...)
+	})
+}
+
+// WithPassThruOutgoingHeaders adds outgoing headers to pass through from grpc to http
+func WithPassThruOutgoingHeaders(headers ...string) Opt {
+	return OptFn(func(c *Config) {
+		c.passThruHeaders.outgoing = append(c.passThruHeaders.outgoing, headers...)
+	})
+}
+
+// WithHTTPMarshalerOptions allows user to add custom http marshaler options
+func WithHTTPMarshalerOptions(options HttpMarshalerOptions) Opt {
+	return OptFn(func(c *Config) {
+		c.httpMarshalerOptions = options
 	})
 }
