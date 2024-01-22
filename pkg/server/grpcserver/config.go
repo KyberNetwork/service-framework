@@ -1,11 +1,14 @@
 package grpcserver
 
 import (
+	"context"
 	"net"
 	"strconv"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
+
+	"github.com/KyberNetwork/service-framework/pkg/server/middleware/logging"
 )
 
 var (
@@ -24,16 +27,20 @@ type (
 		gRPC *grpc.Server
 		mux  *runtime.ServeMux
 		cfg  *Config
-		AppMode
 	}
 
 	// Config hold http/grpc server config
 	Config struct {
-		Mode     string
+		Mode     AppMode
 		GRPC     Listen
 		HTTP     Listen
 		BasePath string
 		Log      Log
+
+		services           []Service                            // services to register
+		loggingInterceptor logging.InterceptorLogger            // to override default interceptor logger
+		logger             func(context.Context) logging.Logger // to override logger used by default interceptor logger
+		grpcServerOptions  []grpc.ServerOption                  // additional grpc server options
 	}
 
 	Log struct {
@@ -51,4 +58,70 @@ type (
 // String return socket listen DSN
 func (l *Listen) String() string {
 	return net.JoinHostPort(l.Host, strconv.Itoa(l.Port))
+}
+
+// Apply config options
+func (c Config) Apply(opts ...Opt) Config {
+	for _, opt := range opts {
+		opt.opt(&c)
+	}
+	return c
+}
+
+func (c Config) Services() []Service {
+	return c.services
+}
+
+func (c Config) LoggingInterceptor() logging.InterceptorLogger {
+	loggingLogger := c.loggingInterceptor
+	if loggingLogger == nil {
+		loggingLogger = logging.DefaultLogger(c.logger,
+			logging.IgnoreReq(c.Log.IgnoreReq...), logging.IgnoreResp(c.Log.IgnoreResp...))
+	}
+	return loggingLogger
+}
+
+func (c Config) GRPCServerOptions() []grpc.ServerOption {
+	return c.grpcServerOptions
+}
+
+// Opt is an option for server config
+type Opt interface {
+	opt(*Config)
+}
+
+// OptFn implements Opt by calling itself
+type OptFn func(*Config)
+
+// opt implements Opt
+func (o OptFn) opt(c *Config) {
+	o(c)
+}
+
+// WithServices add services to serve
+func WithServices(services ...Service) Opt {
+	return OptFn(func(c *Config) {
+		c.services = append(c.services, services...)
+	})
+}
+
+// WithLoggingInterceptor overrides the default logging interceptor
+func WithLoggingInterceptor(interceptor logging.InterceptorLogger) Opt {
+	return OptFn(func(c *Config) {
+		c.loggingInterceptor = interceptor
+	})
+}
+
+// WithLogger overrides the default logger used by the default logging interceptor
+func WithLogger(logger func(ctx context.Context) logging.Logger) Opt {
+	return OptFn(func(c *Config) {
+		c.logger = logger
+	})
+}
+
+// WithGRPCServerOptions allows user to add custom grpc server options
+func WithGRPCServerOptions(options ...grpc.ServerOption) Opt {
+	return OptFn(func(c *Config) {
+		c.grpcServerOptions = append(c.grpcServerOptions, options...)
+	})
 }
