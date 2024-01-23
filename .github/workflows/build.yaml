@@ -1,7 +1,8 @@
-name: Build
+name: 'Build'
 
 # Check that your service repo is private if this service-framework repo is also private
-# Sample concurrency config:
+# Sample permissions and concurrency config:
+# permissions: write-all
 # concurrency:
 #   group: ci-workflow-${{ github.ref }}-${{ github.event_name }}
 #   cancel-in-progress: true
@@ -10,13 +11,23 @@ on:
   workflow_call:
     inputs:
       cluster:
+        description: 'Docker image directory'
         type: string
         default: core
       service:
+        description: 'Service repo name'
         type: string
         required: true
-      file:
+      version:
+        description: 'Release version'
         type: string
+      file:
+        description: 'Dockerfile path if not the default one'
+        type: string
+    outputs:
+      create_tag:
+        description: 'Tag to use for creating release'
+        value: ${{ jobs.build.outputs.create_tag }}
 
 env:
   IMAGE_REGISTRY: asia.gcr.io
@@ -24,20 +35,40 @@ env:
 jobs:
   build:
     runs-on: self-hosted
-    if: startsWith(github.ref, 'refs/heads/')
+    outputs:
+      create_tag: ${{ steps.prepare.outputs.create_tag }}
     steps:
       - uses: actions/checkout@v4
       - name: prepare
         id: prepare
         env:
           IMAGE_REPOSITORY: ${{ env.IMAGE_REGISTRY }}/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
+          INPUT_TAG: ${{ github.event.inputs.version }}
+        # language=bash
         run: |
           #!/bin/bash
-          BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/})
-          IMAGE_TAG=${BRANCH_NAME}-$(echo ${GITHUB_SHA::7})
-          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-          echo "image_url=${IMAGE_REPOSITORY}:${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          TAG=${INPUT_TAG#v}
+          if [ -n "$TAG" ]; then # release tag
+            TAG=v$TAG
+            echo "create_tag=$TAG" >> $GITHUB_OUTPUT
+            IMAGE_TAGS="${IMAGE_REPOSITORY}:${TAG}"
+            if [ "$TAG" != *-* ]; then # ignore pre-release
+              PREV_TAG=$TAG
+              while NEXT_TAG=${PREV_TAG%.*}; [ "$NEXT_TAG" != "$PREV_TAG" ]; do
+                IMAGE_TAGS+=",${IMAGE_REPOSITORY}:${NEXT_TAG}"
+                PREV_TAG=$NEXT_TAG
+              done
+            fi
+            IMAGE_TAGS+=",${IMAGE_REPOSITORY}:latest"
+          else # internal tag
+            BRANCH=${GITHUB_REF#refs/heads/}
+            TAG=${BRANCH}-${GITHUB_SHA::7}
+            IMAGE_TAGS="${IMAGE_REPOSITORY}:${TAG}"
+            IMAGE_TAGS+=",${IMAGE_REPOSITORY}:${BRANCH}"
+          fi
+          echo "version_tag=$TAG" >> $GITHUB_OUTPUT
           echo "build_date=$(date +%FT%T%z)" >> $GITHUB_OUTPUT
+          echo "image_tags=${IMAGE_TAGS}" >> $GITHUB_OUTPUT
       - uses: docker/setup-buildx-action@v3
       - uses: google-github-actions/auth@v2
         with:
@@ -49,17 +80,16 @@ jobs:
           file: ${{ inputs.file }}
           push: true
           build-args: |
-            VERSION=${{ steps.prepare.outputs.image_tag }}
+            VERSION=${{ steps.prepare.outputs.version_tag }}
             GIT_HASH=${{ github.sha }}
             BUILD_DATE=${{ steps.prepare.outputs.build_date }}
             GH_USER=kyber-ci-bot
           labels: |
             kyber.network.schema-version=1.0
-            kyber.network.vcs-ref=${{ github.sha }}
-            kyber.network.version=${{ steps.prepare.outputs.image_tag }}
             kyber.network.name=${{ inputs.service }}
-          tags: |
-            ${{ steps.prepare.outputs.image_url }}
+            kyber.network.version=${{ steps.prepare.outputs.version_tag }}
+            kyber.network.vcs-ref=${{ github.sha }}
+          tags: ${{ steps.prepare.outputs.image_tags }}
           secrets: |
             "gh_pat=${{ secrets.GH_PAT }}"
           cache-from: type=gha
