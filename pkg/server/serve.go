@@ -105,8 +105,7 @@ func (r *requestIdExtractor) Extract(ctx context.Context, carrier propagation.Te
 	if _, ok := common.TraceIdFromCtx(ctx); ok {
 		return ctx
 	}
-	md, _ := metadata.FromIncomingContext(ctx)
-	requestIds := md.Get(common.HeaderXRequestId)
+	requestIds := metadata.ValueFromIncomingContext(ctx, common.HeaderXRequestId)
 	if len(requestIds) == 0 {
 		return ctx
 	}
