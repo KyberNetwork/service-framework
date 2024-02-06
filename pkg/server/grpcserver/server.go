@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/reflection"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/KyberNetwork/service-framework/pkg/common"
@@ -63,7 +64,7 @@ func (s *ServiceImpl[T]) opt(c *Config) {
 func NewService[T any](srv T,
 	regServiceServer func(s grpc.ServiceRegistrar, srv T),
 	regServiceHandlerFromEndpoint func(ctx context.Context, mux *runtime.ServeMux, endpoint string,
-	opts []grpc.DialOption) (err error)) Service {
+		opts []grpc.DialOption) (err error)) Service {
 	return &ServiceImpl[T]{
 		srv:                           srv,
 		regServiceServer:              regServiceServer,
@@ -81,9 +82,17 @@ func NewServer(cfg *Config, opt ...grpc.ServerOption) *Server {
 	}
 	marshalerOptions := cfg.httpMarshalerOptions
 
+	grpcServer := grpc.NewServer(opt...)
+
+	// Use reflection to expose gRPC service automatically
+	// Only use in development mode
+	if cfg.Mode == Development {
+		reflection.Register(grpcServer)
+	}
+
 	return &Server{
 		cfg:  cfg,
-		gRPC: grpc.NewServer(opt...),
+		gRPC: grpcServer,
 		mux: runtime.NewServeMux(
 			runtime.WithIncomingHeaderMatcher(CustomHeaderMatcher(cfg.passThruHeaders.incoming...)),
 			runtime.WithOutgoingHeaderMatcher(CustomHeaderMatcher(cfg.passThruHeaders.outgoing...)),
