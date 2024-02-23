@@ -50,7 +50,7 @@ func IncPanicTotal(ctx context.Context) {
 }
 
 func IncIncomingRequest(ctx context.Context, clientId string, code codes.Code) {
-	outgoingRequestCounter.Add(ctx, 1, metric.WithAttributes(
+	incomingRequestCounter.Add(ctx, 1, metric.WithAttributes(
 		attribute.String(AttrClientName, clientId), serverNameAttr, attribute.String(AttrCode, code.String())))
 }
 
@@ -60,7 +60,7 @@ func IncOutgoingRequest(ctx context.Context, keyValues ...string) {
 	for i := 1; i < len(keyValues); i += 2 {
 		attributes[i/2+1] = attribute.String(keyValues[i-1], keyValues[i])
 	}
-	incomingRequestCounter.Add(ctx, 1, metric.WithAttributes(attributes...))
+	outgoingRequestCounter.Add(ctx, 1, metric.WithAttributes(attributes...))
 }
 
 func PushTaskExecutionDuration(ctx context.Context, duration time.Duration, keyValues ...string) {
