@@ -5,9 +5,8 @@ go 1.21.0
 toolchain go1.21.5
 
 require (
-	github.com/KyberNetwork/kutils v0.2.2
+	github.com/KyberNetwork/kutils v0.2.3
 	github.com/KyberNetwork/kyber-trace-go v0.1.2
-	github.com/KyberNetwork/logger v0.2.0
 	github.com/cenkalti/backoff/v4 v4.2.1
 	github.com/ethereum/go-ethereum v1.13.12
 	github.com/go-resty/resty/v2 v2.11.0
@@ -28,6 +27,7 @@ require (
 )
 
 require (
+	github.com/KyberNetwork/logger v0.1.0 // indirect
 	github.com/Microsoft/go-winio v0.6.1 // indirect
 	github.com/bits-and-blooms/bitset v1.13.0 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.2 // indirect
