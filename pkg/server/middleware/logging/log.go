@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/KyberNetwork/kutils/klog"
-	"github.com/KyberNetwork/logger"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
@@ -93,9 +92,9 @@ func DefaultLogger(loggerFromCtx func(context.Context) Logger, opts ...func(opt 
 }
 
 // FieldsLogger is the fields-enabled logging interceptor which logs requests and responses in JSON format.
-func FieldsLogger(loggerFromCtx func(context.Context) logger.Logger, opts ...func(opt *opt)) LoggerFunc {
+func FieldsLogger(loggerFromCtx func(context.Context) klog.Logger, opts ...func(opt *opt)) LoggerFunc {
 	if loggerFromCtx == nil {
-		loggerFromCtx = func(ctx context.Context) logger.Logger {
+		loggerFromCtx = func(ctx context.Context) klog.Logger {
 			return klog.LoggerFromCtx(ctx)
 		}
 	}
@@ -112,7 +111,7 @@ func FieldsLogger(loggerFromCtx func(context.Context) logger.Logger, opts ...fun
 		if peerInfo, ok := peer.FromContext(ctx); ok {
 			from = append(from, peerInfo.Addr.String())
 		}
-		logFields := logger.Fields{
+		logFields := klog.Fields{
 			"cmd":  meta.FullMethod,
 			"code": code,
 			"err":  err,
