@@ -62,6 +62,7 @@ jobs:
             IMAGE_TAGS+=",${IMAGE_REPOSITORY}:latest"
           else # internal tag
             BRANCH=${GITHUB_REF#refs/heads/}
+            BRANCH=${BRANCH//[^a-zA-Z0-9.-]/_}
             TAG=${BRANCH}-${GITHUB_SHA::7}
             IMAGE_TAGS="${IMAGE_REPOSITORY}:${TAG}"
             IMAGE_TAGS+=",${IMAGE_REPOSITORY}:${BRANCH}"
