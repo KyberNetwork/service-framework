@@ -25,15 +25,17 @@ on:
         description: 'Dockerfile path if not the default one'
         type: string
 
+env:
+  IMAGE_REGISTRY: asia.gcr.io
+
 jobs:
   build:
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
+          images: ${{ env.IMAGE_REGISTRY }}/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
           tags: |
             type=semver,value=${{ inputs.version }},pattern=v{{version}}
             type=semver,value=${{ inputs.version }},pattern=v{{major}}.{{minor}}
@@ -45,14 +47,19 @@ jobs:
             kyber.network.name=${{ inputs.service }}
             kyber.network.version=${{ steps.prepare.outputs.version_tag }}
             kyber.network.vcs-ref=${{ github.sha }}
-      # - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx.build-${{ inputs.file }}-${{ runner.os }}-${{ runner.arch }}-${{ github.ref }}
+          restore-keys: buildx.build-${{ inputs.file }}-${{ runner.os }}-
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: "${{ secrets.GCR_CREDENTIALS }}"
-      # - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v2
       - uses: docker/build-push-action@v5
+        if: '!cancelled()'
         with:
-          context: .
           file: ${{ inputs.file }}
           push: ${{ github.event_name != 'pull_request' }}
           build-args: |
@@ -61,5 +68,10 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
           secrets: |
             "gh_pat=${{ secrets.GH_PAT }}"
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # we use local cache because buildkit doesn't preserve cache mounts and the workaround cache-dance doesn't work for self-hosted
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+      - name: Move cache # https://docs.docker.com/build/ci/github-actions/cache/#local-cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
