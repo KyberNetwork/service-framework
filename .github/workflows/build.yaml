@@ -32,13 +32,15 @@ jobs:
   build:
     runs-on: self-hosted
     steps:
+      - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - name: Cache for buildx
         uses: actions/cache@v3
         with:
           path: /tmp/.buildx-cache
-          key: buildx.build-${{ inputs.file }}-${{ runner.os }}-${{ runner.arch }}-${{ github.ref }}
-          restore-keys: buildx.build-${{ inputs.file }}-${{ runner.os }}-
+          key: buildx.build-${{ inputs.file }}-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            buildx.build-${{ inputs.file }}-${{ runner.os }}-
       - name: Inject/extract cache for /go/pkg into buildx
         uses: NgoKimPhu/buildkit-cache-dance@main
         with:
