@@ -17,20 +17,22 @@ on:
         description: 'Service repo name'
         type: string
         required: true
-      service_name:
-        description: 'Release service name'
-        type: string
-        required: true
       version:
         description: 'Release version'
         type: string
         required: true
+      file:
+        description: 'Dockerfile path if not the default one'
+        type: string
       create_tag:
         description: 'Whether to create tag and release'
         type: boolean
         default: true
-      file:
-        description: 'Dockerfile path if not the default one'
+      release_name:
+        description: 'Custom release name'
+        type: string
+      release_body:
+        description: 'Custom release body'
         type: string
 
 jobs:
@@ -45,9 +47,9 @@ jobs:
   tag:
     runs-on: self-hosted
     needs: build
-    if: inputs.create_tag && needs.build.outputs.create_tag != ''
+    if: inputs.create_tag
     env:
-      VERSION_TAG: ${{ needs.build.outputs.create_tag }}
+      VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v4
       - name: Create tag
@@ -55,11 +57,12 @@ jobs:
         run: |
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
-          git tag --delete "$VERSION_TAG" 2> /dev/null || echo "Release tag '$VERSION_TAG' does NOT exist"
-          git tag --annotate --message "${{ inputs.service }} $VERSION_TAG" "$VERSION_TAG"
-          git push origin "refs/tags/$VERSION_TAG"
+          git tag --annotate --message "${{ inputs.service }} $VERSION" "$VERSION"
+          git push origin "refs/tags/$VERSION"
       - uses: softprops/action-gh-release@v1
         with:
-          token: ${{ secrets.GH_PAT }}
-          tag_name: ${{ env.VERSION_TAG }}
-          name: "${{ inputs.service_name }} ${{ env.VERSION_TAG }}"
+          # token: ${{ secrets.GH_PAT }}
+          tag_name: ${{ env.VERSION }}
+          generate_release_notes: true
+          name: ${{ inputs.release_name }}
+          body: ${{ inputs.release_body }}
