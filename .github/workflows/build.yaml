@@ -32,6 +32,27 @@ jobs:
   build:
     runs-on: self-hosted
     steps:
+      - uses: docker/setup-buildx-action@v3
+      - name: Cache for buildx
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx.build-${{ inputs.file }}-${{ runner.os }}-${{ runner.arch }}-${{ github.ref }}
+          restore-keys: buildx.build-${{ inputs.file }}-${{ runner.os }}-
+      - name: Inject/extract cache for /go/pkg into buildx
+        uses: NgoKimPhu/buildkit-cache-dance@main
+        with:
+          cache-source: /tmp/.buildx-cache/go/pkg
+          cache-target: /go/pkg
+      - name: Inject/extract cache for /root/.cache/go-build into buildx
+        uses: NgoKimPhu/buildkit-cache-dance@main
+        with:
+          cache-source: /tmp/.buildx-cache/root/.cache/go-build
+          cache-target: /root/.cache/go-build
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: "${{ secrets.GCR_CREDENTIALS }}"
+      - uses: google-github-actions/setup-gcloud@v2
       - id: meta
         uses: docker/metadata-action@v5
         with:
@@ -47,18 +68,7 @@ jobs:
             kyber.network.name=${{ inputs.service }}
             kyber.network.version=${{ steps.prepare.outputs.version_tag }}
             kyber.network.vcs-ref=${{ github.sha }}
-      - uses: docker/setup-buildx-action@v3
-      - uses: actions/cache@v3
-        with:
-          path: /tmp/.buildx-cache
-          key: buildx.build-${{ inputs.file }}-${{ runner.os }}-${{ runner.arch }}-${{ github.ref }}
-          restore-keys: buildx.build-${{ inputs.file }}-${{ runner.os }}-
-      - uses: google-github-actions/auth@v2
-        with:
-          credentials_json: "${{ secrets.GCR_CREDENTIALS }}"
-      - uses: google-github-actions/setup-gcloud@v2
       - uses: docker/build-push-action@v5
-        if: '!cancelled()'
         with:
           file: ${{ inputs.file }}
           push: ${{ github.event_name != 'pull_request' }}
@@ -68,10 +78,5 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
           secrets: |
             "gh_pat=${{ secrets.GH_PAT }}"
-          # we use local cache because buildkit doesn't preserve cache mounts and the workaround cache-dance doesn't work for self-hosted
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-      - name: Move cache # https://docs.docker.com/build/ci/github-actions/cache/#local-cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
