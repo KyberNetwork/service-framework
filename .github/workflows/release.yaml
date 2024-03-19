@@ -58,7 +58,7 @@ jobs:
           git tag --delete "$VERSION_TAG" 2> /dev/null || echo "Release tag '$VERSION_TAG' does NOT exist"
           git tag --annotate --message "${{ inputs.service }} $VERSION_TAG" "$VERSION_TAG"
           git push origin "refs/tags/$VERSION_TAG"
-      - uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GH_PAT }}
           tag_name: ${{ env.VERSION_TAG }}
