@@ -196,6 +196,11 @@ func RequestHeadersInterceptor(header map[string]string) grpc.UnaryClientInterce
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn,
 		invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		md := metadata.New(header)
+		if existingMd, ok := metadata.FromOutgoingContext(ctx); ok {
+			for k, v := range existingMd {
+				md.Set(k, v...)
+			}
+		}
 		ctx = metadata.NewOutgoingContext(ctx, md)
 		return invoker(ctx, method, req, reply, cc, opts...)
 	}
