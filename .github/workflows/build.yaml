@@ -24,10 +24,9 @@ on:
       file:
         description: 'Dockerfile path if not the default one'
         type: string
-    outputs:
-      create_tag:
-        description: 'Tag to use for creating release'
-        value: ${{ jobs.build.outputs.create_tag }}
+      cache:
+        description: 'Enable buildx caching (experimental)'
+        type: boolean
 
 env:
   IMAGE_REGISTRY: asia.gcr.io
@@ -35,62 +34,55 @@ env:
 jobs:
   build:
     runs-on: self-hosted
-    outputs:
-      create_tag: ${{ steps.prepare.outputs.create_tag }}
     steps:
       - uses: actions/checkout@v4
-      - name: prepare
-        id: prepare
-        env:
-          IMAGE_REPOSITORY: ${{ env.IMAGE_REGISTRY }}/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
-          INPUT_TAG: ${{ github.event.inputs.version }}
-        # language=bash
-        run: |
-          #!/bin/bash
-          TAG=${INPUT_TAG#v}
-          if [ -n "$TAG" ]; then # release tag
-            TAG=v$TAG
-            echo "create_tag=$TAG" >> $GITHUB_OUTPUT
-            IMAGE_TAGS="${IMAGE_REPOSITORY}:${TAG}"
-            if [ "$TAG" != *-* ]; then # ignore pre-release
-              PREV_TAG=$TAG
-              while NEXT_TAG=${PREV_TAG%.*}; [ "$NEXT_TAG" != "$PREV_TAG" ]; do
-                IMAGE_TAGS+=",${IMAGE_REPOSITORY}:${NEXT_TAG}"
-                PREV_TAG=$NEXT_TAG
-              done
-            fi
-            IMAGE_TAGS+=",${IMAGE_REPOSITORY}:latest"
-          else # internal tag
-            BRANCH=${GITHUB_REF#refs/heads/}
-            BRANCH=${BRANCH//[^a-zA-Z0-9.-]/_}
-            TAG=${BRANCH}-${GITHUB_SHA::7}
-            IMAGE_TAGS="${IMAGE_REPOSITORY}:${TAG}"
-            IMAGE_TAGS+=",${IMAGE_REPOSITORY}:${BRANCH}"
-          fi
-          echo "version_tag=$TAG" >> $GITHUB_OUTPUT
-          echo "build_date=$(date +%FT%T%z)" >> $GITHUB_OUTPUT
-          echo "image_tags=${IMAGE_TAGS}" >> $GITHUB_OUTPUT
       - uses: docker/setup-buildx-action@v3
+      - name: Cache for buildx
+        uses: actions/cache@v4
+        id: cache
+        if: ${{ inputs.cache }}
+        with:
+          path: .buildx-cache
+          key: buildx-${{ inputs.file }}-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            buildx-${{ inputs.file }}-${{ runner.os }}-
+      - name: Inject/extract cache into/from buildx
+        uses: reproducible-containers/buildkit-cache-dance@v3
+        if: ${{ inputs.cache }}
+        with:
+          cache-map: |
+            {
+              ".buildx-cache/go/pkg": "/go/pkg",
+              ".buildx-cache/root/.cache/go-build": "/root/.cache/go-build"
+            }
+          skip-extraction: ${{ steps.cache.outputs.cache-hit }}
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: "${{ secrets.GCR_CREDENTIALS }}"
       - uses: google-github-actions/setup-gcloud@v2
-      - uses: docker/build-push-action@v5
+      - id: meta
+        uses: docker/metadata-action@v5
         with:
-          context: .
-          file: ${{ inputs.file }}
-          push: true
-          build-args: |
-            VERSION=${{ steps.prepare.outputs.version_tag }}
-            GIT_HASH=${{ github.sha }}
-            BUILD_DATE=${{ steps.prepare.outputs.build_date }}
-            GH_USER=kyber-ci-bot
+          images: ${{ env.IMAGE_REGISTRY }}/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
+          tags: |
+            type=semver,value=${{ inputs.version }},pattern=v{{version}}
+            type=semver,value=${{ inputs.version }},pattern=v{{major}}.{{minor}}
+            type=semver,value=${{ inputs.version }},pattern=v{{major}}
+            type=ref,event=branch
+            type=raw,value={{branch}}-{{sha}},enable=${{ github.event_name == 'push' }}
           labels: |
             kyber.network.schema-version=1.0
             kyber.network.name=${{ inputs.service }}
             kyber.network.version=${{ steps.prepare.outputs.version_tag }}
             kyber.network.vcs-ref=${{ github.sha }}
-          tags: ${{ steps.prepare.outputs.image_tags }}
+      - uses: docker/build-push-action@v5
+        with:
+          file: ${{ inputs.file }}
+          push: ${{ github.event_name != 'pull_request' }}
+          build-args: |
+            GH_USER=kyber-ci-bot
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
           secrets: |
             "gh_pat=${{ secrets.GH_PAT }}"
           cache-from: type=gha
