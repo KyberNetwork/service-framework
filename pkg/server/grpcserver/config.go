@@ -41,7 +41,7 @@ type (
 		loggingInterceptor logging.InterceptorLogger            // to override default interceptor logger
 		logger             func(context.Context) logging.Logger // to override logger used by default interceptor logger
 		grpcServerOptions  []grpc.ServerOption                  // additional grpc server options
-		passThruHeaders    struct { // headers to pass through from http to grpc
+		passThruHeaders    struct {                             // headers to pass through from http to grpc
 			incoming []string // incoming headers (from requests)
 			outgoing []string // outgoing headers (in responses)
 		}
