@@ -8,6 +8,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/KyberNetwork/service-framework/pkg/common"
 	"github.com/KyberNetwork/service-framework/pkg/observe/kmetric"
@@ -24,6 +26,15 @@ func UnaryServerInterceptor(isDevMode bool, internalServerErr *status.Status) gr
 			_ = grpc.SetHeader(ctx, metadata.Pairs(common.HeaderXTraceId, traceIdStr))
 			ctx = klog.CtxWithLogger(ctx,
 				klog.WithFields(ctx, klog.Fields{common.LogFieldTraceId: traceIdStr}))
+			defer func() {
+				if res, ok := res.(proto.Message); ok && res != nil {
+					m := res.ProtoReflect()
+					if fd := m.Descriptor().Fields().ByName("request_id"); fd != nil &&
+						fd.Kind() == protoreflect.StringKind && !m.Has(fd) {
+						m.Set(fd, protoreflect.ValueOfString(traceIdStr))
+					}
+				}
+			}()
 		}
 
 		clientId, code := clientIdFromCtx(ctx), codes.OK
