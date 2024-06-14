@@ -43,10 +43,6 @@ func Serve(ctx context.Context, cfg grpcserver.Config, opts ...grpcserver.Opt) {
 	cfg = cfg.Apply(opts...)
 
 	isDevMode := cfg.Mode == grpcserver.Development
-	unaryOpts := []grpc.UnaryServerInterceptor{
-		trace.UnaryServerInterceptor(isDevMode, internalServerErr),
-	}
-	var streamOpts []grpc.StreamServerInterceptor
 
 	loggingLogger := cfg.LoggingInterceptor()
 	recoveryOpt := recovery.WithRecoveryHandler(func(err any) error {
@@ -56,17 +52,19 @@ func Serve(ctx context.Context, cfg grpcserver.Config, opts ...grpcserver.Opt) {
 	})
 
 	otelGrpcStatHandler := getOtelGrpcStatsHandler()
-	unaryOpts = append(unaryOpts,
+	unaryOpts := []grpc.UnaryServerInterceptor{
+		trace.UnaryServerInterceptor(isDevMode, internalServerErr),
 		selector.UnaryServerInterceptor(logging.UnaryServerInterceptor(loggingLogger),
 			selector.MatchFunc(healthSkip)),
 		validator.UnaryServerInterceptor(),
 		recovery.UnaryServerInterceptor(recoveryOpt),
-	)
-	streamOpts = append(streamOpts,
+	}
+	streamOpts := []grpc.StreamServerInterceptor{
 		selector.StreamServerInterceptor(logging.StreamServerInterceptor(loggingLogger),
 			selector.MatchFunc(healthSkip)),
 		validator.StreamServerInterceptor(),
-		recovery.StreamServerInterceptor(recoveryOpt))
+		recovery.StreamServerInterceptor(recoveryOpt),
+	}
 
 	serverOptions := append([]grpc.ServerOption{
 		grpc.StatsHandler(otelGrpcStatHandler),
