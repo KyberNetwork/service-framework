@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
-	"runtime/debug"
+	"fmt"
+	"strings"
 
+	"github.com/KyberNetwork/kutils"
 	"github.com/KyberNetwork/kutils/klog"
 	kybermetric "github.com/KyberNetwork/kyber-trace-go/pkg/metric"
 	kybertracer "github.com/KyberNetwork/kyber-trace-go/pkg/tracer"
@@ -12,16 +14,15 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/selector"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/validator"
+	"github.com/pkg/errors"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	_ "google.golang.org/grpc/encoding/gzip"
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/stats"
-	"google.golang.org/grpc/status"
 
 	"github.com/KyberNetwork/service-framework/pkg/common"
 	"github.com/KyberNetwork/service-framework/pkg/observe"
@@ -31,37 +32,39 @@ import (
 	"github.com/KyberNetwork/service-framework/pkg/server/middleware/trace"
 )
 
-var internalServerErr = status.New(codes.Internal, "Internal server error")
-
 // Serve starts gRPC server and HTTP grpc gateway server. It blocks until os.Interrupt or syscall.SIGTERM.
 // Example usage:
 //
 //	server.Serve(ctx, cfg, service1, service2, server.WithLogger(myLoggerFactory))
 func Serve(ctx context.Context, cfg grpcserver.Config, opts ...grpcserver.Opt) {
-	defer shutdownKyberTrace()
+	ctxWithoutCancel := kutils.CtxWithoutCancel(ctx)
+	defer shutdownKyberTrace(ctxWithoutCancel)
 
 	cfg = cfg.Apply(opts...)
 
-	isDevMode := cfg.Mode == grpcserver.Development
-
 	loggingLogger := cfg.LoggingInterceptor()
-	recoveryOpt := recovery.WithRecoveryHandler(func(err any) error {
-		klog.WithFields(ctx, klog.Fields{"error": err}).Errorf("recovered from:\n%s", string(debug.Stack()))
-		kmetric.IncPanicTotal(context.Background())
-		return internalServerErr.Err()
+	recoveryOpt := recovery.WithRecoveryHandler(func(p any) error {
+		err := errors.Errorf("%v", p) // use github.com/pkg/errors for stack trace
+		panicStackTrace := fmt.Sprintf("%+v", err)
+		panicStackTrace = panicStackTrace[strings.LastIndex(panicStackTrace, "src/runtime/panic.go")+1:]
+		panicStackTrace = panicStackTrace[strings.IndexByte(panicStackTrace, '\n')+1:]
+		if idx := strings.Index(panicStackTrace, "\ngithub.com/grpc-ecosystem/go-grpc-middleware"); idx > -1 {
+			panicStackTrace = panicStackTrace[:idx]
+		}
+		klog.Errorf(ctx, "recovered from panic: %v\n%s", err, panicStackTrace)
+		kmetric.IncPanicTotal(ctxWithoutCancel)
+		return err
 	})
 
 	otelGrpcStatHandler := getOtelGrpcStatsHandler()
 	unaryOpts := []grpc.UnaryServerInterceptor{
-		trace.UnaryServerInterceptor(isDevMode, internalServerErr),
-		selector.UnaryServerInterceptor(logging.UnaryServerInterceptor(loggingLogger),
-			selector.MatchFunc(healthSkip)),
+		unaryHealthSkip(trace.UnaryServerInterceptor(cfg)),
+		unaryHealthSkip(logging.UnaryServerInterceptor(loggingLogger)),
 		validator.UnaryServerInterceptor(),
 		recovery.UnaryServerInterceptor(recoveryOpt),
 	}
 	streamOpts := []grpc.StreamServerInterceptor{
-		selector.StreamServerInterceptor(logging.StreamServerInterceptor(loggingLogger),
-			selector.MatchFunc(healthSkip)),
+		streamHealthSkip(logging.StreamServerInterceptor(loggingLogger)),
 		validator.StreamServerInterceptor(),
 		recovery.StreamServerInterceptor(recoveryOpt),
 	}
@@ -83,8 +86,16 @@ func Serve(ctx context.Context, cfg grpcserver.Config, opts ...grpcserver.Opt) {
 	}
 }
 
-func healthSkip(_ context.Context, c interceptors.CallMeta) bool {
+var healthSkipMatchFunc = selector.MatchFunc(func(_ context.Context, c interceptors.CallMeta) bool {
 	return c.FullMethod() != healthv1.Health_Check_FullMethodName
+})
+
+func unaryHealthSkip(interceptor grpc.UnaryServerInterceptor) grpc.UnaryServerInterceptor {
+	return selector.UnaryServerInterceptor(interceptor, healthSkipMatchFunc)
+}
+
+func streamHealthSkip(interceptor grpc.StreamServerInterceptor) grpc.StreamServerInterceptor {
+	return selector.StreamServerInterceptor(interceptor, healthSkipMatchFunc)
 }
 
 func getOtelGrpcStatsHandler() stats.Handler {
@@ -131,8 +142,7 @@ func (s *OtelServerHandler) HandleRPC(ctx context.Context, rs stats.RPCStats) {
 	s.Handler.HandleRPC(ctx, rs)
 }
 
-func shutdownKyberTrace() {
-	ctx := context.Background()
+func shutdownKyberTrace(ctx context.Context) {
 	shutdownTracer(ctx)
 	shutdownMetric(ctx)
 }
