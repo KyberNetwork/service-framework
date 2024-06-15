@@ -9,6 +9,7 @@ import (
 	"github.com/KyberNetwork/kyber-trace-go/pkg/util/env"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"google.golang.org/grpc/codes"
 )
 
@@ -49,9 +50,10 @@ func IncPanicTotal(ctx context.Context) {
 	panicCounter.Add(ctx, 1, metric.WithAttributes(serverNameAttr))
 }
 
-func IncIncomingRequest(ctx context.Context, clientId string, code codes.Code) {
+func IncIncomingRequest(ctx context.Context, clientId, method string, code codes.Code) {
 	incomingRequestCounter.Add(ctx, 1, metric.WithAttributes(
-		attribute.String(AttrClientName, clientId), serverNameAttr, attribute.String(AttrCode, code.String())))
+		attribute.String(AttrClientName, clientId), semconv.RPCMethod(method), serverNameAttr,
+		attribute.String(AttrCode, code.String())))
 }
 
 func IncOutgoingRequest(ctx context.Context, keyValues ...string) {

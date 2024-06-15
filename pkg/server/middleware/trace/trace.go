@@ -3,6 +3,7 @@ package trace
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/KyberNetwork/kutils/klog"
 	"google.golang.org/grpc"
@@ -45,7 +46,8 @@ func UnaryServerInterceptor(cfg grpcserver.Config) grpc.UnaryServerInterceptor {
 
 		clientId, code := clientIdFromCtx(ctx), codes.OK
 		defer func() {
-			kmetric.IncIncomingRequest(ctx, clientId, code)
+			method := info.FullMethod[strings.LastIndexByte(info.FullMethod, '/')+1:]
+			kmetric.IncIncomingRequest(ctx, clientId, method, code)
 		}()
 		res, err = handler(ctx, req)
 		if err != nil {

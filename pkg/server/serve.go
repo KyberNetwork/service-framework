@@ -48,7 +48,7 @@ func Serve(ctx context.Context, cfg grpcserver.Config, opts ...grpcserver.Opt) {
 		panicStackTrace := fmt.Sprintf("%+v", err)
 		panicStackTrace = panicStackTrace[strings.LastIndex(panicStackTrace, "src/runtime/panic.go")+1:]
 		panicStackTrace = panicStackTrace[strings.IndexByte(panicStackTrace, '\n')+1:]
-		if idx := strings.Index(panicStackTrace, "github.com/grpc-ecosystem/go-grpc-middleware"); idx > -1 {
+		if idx := strings.Index(panicStackTrace, "\ngithub.com/grpc-ecosystem/go-grpc-middleware"); idx > -1 {
 			panicStackTrace = panicStackTrace[:idx]
 		}
 		klog.Errorf(ctx, "recovered from panic: %v\n%s", err, panicStackTrace)
