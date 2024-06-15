@@ -2,7 +2,8 @@ package server
 
 import (
 	"context"
-	"runtime/debug"
+	"fmt"
+	"strings"
 
 	"github.com/KyberNetwork/kutils"
 	"github.com/KyberNetwork/kutils/klog"
@@ -13,16 +14,15 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/selector"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/validator"
+	"github.com/pkg/errors"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	_ "google.golang.org/grpc/encoding/gzip"
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/stats"
-	"google.golang.org/grpc/status"
 
 	"github.com/KyberNetwork/service-framework/pkg/common"
 	"github.com/KyberNetwork/service-framework/pkg/observe"
@@ -32,29 +32,33 @@ import (
 	"github.com/KyberNetwork/service-framework/pkg/server/middleware/trace"
 )
 
-var internalServerErr = status.New(codes.Internal, "Internal server error")
-
 // Serve starts gRPC server and HTTP grpc gateway server. It blocks until os.Interrupt or syscall.SIGTERM.
 // Example usage:
 //
 //	server.Serve(ctx, cfg, service1, service2, server.WithLogger(myLoggerFactory))
 func Serve(ctx context.Context, cfg grpcserver.Config, opts ...grpcserver.Opt) {
-	defer shutdownKyberTrace(kutils.CtxWithoutCancel(ctx))
+	ctxWithoutCancel := kutils.CtxWithoutCancel(ctx)
+	defer shutdownKyberTrace(ctxWithoutCancel)
 
 	cfg = cfg.Apply(opts...)
 
-	isDevMode := cfg.Mode == grpcserver.Development
-
 	loggingLogger := cfg.LoggingInterceptor()
-	recoveryOpt := recovery.WithRecoveryHandler(func(err any) error {
-		klog.WithFields(ctx, klog.Fields{"error": err}).Errorf("recovered from:\n%s", string(debug.Stack()))
-		kmetric.IncPanicTotal(context.Background())
-		return internalServerErr.Err()
+	recoveryOpt := recovery.WithRecoveryHandler(func(p any) error {
+		err := errors.Errorf("%v", p) // use github.com/pkg/errors for stack trace
+		panicStackTrace := fmt.Sprintf("%+v", err)
+		panicStackTrace = panicStackTrace[strings.LastIndex(panicStackTrace, "src/runtime/panic.go")+1:]
+		panicStackTrace = panicStackTrace[strings.IndexByte(panicStackTrace, '\n')+1:]
+		if idx := strings.Index(panicStackTrace, "github.com/grpc-ecosystem/go-grpc-middleware"); idx > -1 {
+			panicStackTrace = panicStackTrace[:idx]
+		}
+		klog.Errorf(ctx, "recovered from panic: %v\n%s", err, panicStackTrace)
+		kmetric.IncPanicTotal(ctxWithoutCancel)
+		return err
 	})
 
 	otelGrpcStatHandler := getOtelGrpcStatsHandler()
 	unaryOpts := []grpc.UnaryServerInterceptor{
-		unaryHealthSkip(trace.UnaryServerInterceptor(isDevMode, internalServerErr)),
+		unaryHealthSkip(trace.UnaryServerInterceptor(cfg)),
 		unaryHealthSkip(logging.UnaryServerInterceptor(loggingLogger)),
 		validator.UnaryServerInterceptor(),
 		recovery.UnaryServerInterceptor(recoveryOpt),
