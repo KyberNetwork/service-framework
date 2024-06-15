@@ -4,6 +4,7 @@ import (
 	"context"
 	"runtime/debug"
 
+	"github.com/KyberNetwork/kutils"
 	"github.com/KyberNetwork/kutils/klog"
 	kybermetric "github.com/KyberNetwork/kyber-trace-go/pkg/metric"
 	kybertracer "github.com/KyberNetwork/kyber-trace-go/pkg/tracer"
@@ -38,7 +39,7 @@ var internalServerErr = status.New(codes.Internal, "Internal server error")
 //
 //	server.Serve(ctx, cfg, service1, service2, server.WithLogger(myLoggerFactory))
 func Serve(ctx context.Context, cfg grpcserver.Config, opts ...grpcserver.Opt) {
-	defer shutdownKyberTrace()
+	defer shutdownKyberTrace(kutils.CtxWithoutCancel(ctx))
 
 	cfg = cfg.Apply(opts...)
 
@@ -53,15 +54,13 @@ func Serve(ctx context.Context, cfg grpcserver.Config, opts ...grpcserver.Opt) {
 
 	otelGrpcStatHandler := getOtelGrpcStatsHandler()
 	unaryOpts := []grpc.UnaryServerInterceptor{
-		trace.UnaryServerInterceptor(isDevMode, internalServerErr),
-		selector.UnaryServerInterceptor(logging.UnaryServerInterceptor(loggingLogger),
-			selector.MatchFunc(healthSkip)),
+		unaryHealthSkip(trace.UnaryServerInterceptor(isDevMode, internalServerErr)),
+		unaryHealthSkip(logging.UnaryServerInterceptor(loggingLogger)),
 		validator.UnaryServerInterceptor(),
 		recovery.UnaryServerInterceptor(recoveryOpt),
 	}
 	streamOpts := []grpc.StreamServerInterceptor{
-		selector.StreamServerInterceptor(logging.StreamServerInterceptor(loggingLogger),
-			selector.MatchFunc(healthSkip)),
+		streamHealthSkip(logging.StreamServerInterceptor(loggingLogger)),
 		validator.StreamServerInterceptor(),
 		recovery.StreamServerInterceptor(recoveryOpt),
 	}
@@ -83,8 +82,16 @@ func Serve(ctx context.Context, cfg grpcserver.Config, opts ...grpcserver.Opt) {
 	}
 }
 
-func healthSkip(_ context.Context, c interceptors.CallMeta) bool {
+var healthSkipMatchFunc = selector.MatchFunc(func(_ context.Context, c interceptors.CallMeta) bool {
 	return c.FullMethod() != healthv1.Health_Check_FullMethodName
+})
+
+func unaryHealthSkip(interceptor grpc.UnaryServerInterceptor) grpc.UnaryServerInterceptor {
+	return selector.UnaryServerInterceptor(interceptor, healthSkipMatchFunc)
+}
+
+func streamHealthSkip(interceptor grpc.StreamServerInterceptor) grpc.StreamServerInterceptor {
+	return selector.StreamServerInterceptor(interceptor, healthSkipMatchFunc)
 }
 
 func getOtelGrpcStatsHandler() stats.Handler {
@@ -131,8 +138,7 @@ func (s *OtelServerHandler) HandleRPC(ctx context.Context, rs stats.RPCStats) {
 	s.Handler.HandleRPC(ctx, rs)
 }
 
-func shutdownKyberTrace() {
-	ctx := context.Background()
+func shutdownKyberTrace(ctx context.Context) {
 	shutdownTracer(ctx)
 	shutdownMetric(ctx)
 }
