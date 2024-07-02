@@ -75,7 +75,7 @@ jobs:
             kyber.network.name=${{ inputs.service }}
             kyber.network.version=${{ steps.prepare.outputs.version_tag }}
             kyber.network.vcs-ref=${{ github.sha }}
-      - uses: docker/build-push-action@v5
+      - uses: docker/build-push-action@v6
         with:
           file: ${{ inputs.file }}
           push: ${{ github.event_name != 'pull_request' }}
