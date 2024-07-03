@@ -7,6 +7,9 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
+// HttpCfg is hotcfg for a resty http client. On update, it
+// creates a new resty client with the new config
+// as well as instruments the client for metrics and tracing.
 type HttpCfg struct {
 	kutils.HttpCfg `mapstructure:",squash"`
 	C              *resty.Client

@@ -64,6 +64,8 @@ func WithCompression(compression Compression) ApplyOption {
 	}
 }
 
+// WithBlock is a no-op.
+// deprecated: see grpc.WithBlock
 func WithBlock() ApplyOption {
 	return func(c *Config) {
 		c.IsBlockConnect = true

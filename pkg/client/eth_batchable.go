@@ -12,6 +12,8 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 )
 
+// BatchableEthCfg is hotcfg for batchable eth client.
+// It batches eth_call's up to be sent together within 1 request to the rpc node.
 type BatchableEthCfg struct {
 	EthCfg    `mapstructure:",squash"`
 	BatchRate time.Duration

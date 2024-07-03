@@ -4,6 +4,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 )
 
+// BackoffCfg is a hotcfg to create a backoff.ExponentialBackOff
 type BackoffCfg struct {
 	backoff.ExponentialBackOff `mapstructure:",squash"`
 	MaxRetries                 uint64

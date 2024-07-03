@@ -13,8 +13,12 @@ import (
 
 const RedisCloseDelay = time.Minute
 
+// RedisCfg is hotcfg for redis client. On update, it
+// creates FailoverClusterClient with RouteRandomly for sentinel redis by default
+// as well as instrumenting the client for metrics and tracing.
 type RedisCfg struct {
 	redis.UniversalOptions `mapstructure:",squash"`
+	DisableRouteRandomly   bool
 	C                      redis.UniversalClient
 }
 
@@ -28,7 +32,8 @@ func (*RedisCfg) OnUpdate(old, new *RedisCfg) {
 			}
 		})
 	}
-	new.C = redis.NewUniversalClient(&new.UniversalOptions)
+	new.RouteRandomly = new.RouteRandomly || !new.DisableRouteRandomly
+	new.C = newRedisClient(&new.UniversalOptions)
 	if metric.Provider() != nil {
 		if err := redisotel.InstrumentMetrics(new.C); err != nil {
 			klog.Errorf(ctx, "RedisCfg.OnUpdate|redisotel.InstrumentMetrics failed|err=%v", err)
@@ -39,4 +44,14 @@ func (*RedisCfg) OnUpdate(old, new *RedisCfg) {
 			klog.Errorf(ctx, "RedisCfg.OnUpdate|redisotel.InstrumentTracing failed|err=%v", err)
 		}
 	}
+}
+
+func newRedisClient(opts *redis.UniversalOptions) redis.UniversalClient {
+	if opts.MasterName == "" {
+		return redis.NewUniversalClient(opts)
+	}
+	failoverOpts := opts.Failover()
+	failoverOpts.RouteByLatency = opts.RouteByLatency
+	failoverOpts.RouteRandomly = opts.RouteRandomly
+	return redis.NewFailoverClusterClient(failoverOpts)
 }
