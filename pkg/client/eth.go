@@ -18,6 +18,8 @@ import (
 
 const EthCloseDelay = time.Minute
 
+// EthCfg is hotcfg for eth client. It creates a client that automatically choose to use
+// the provided full node rpc or archive node.
 type EthCfg struct {
 	Url        string
 	ArchiveUrl string

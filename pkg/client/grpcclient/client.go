@@ -28,7 +28,7 @@ type Config struct {
 	BaseURL           string
 	MinConnectTimeout time.Duration
 	ConnectBackoff    backoff.Config
-	IsBlockConnect    bool
+	IsBlockConnect    bool // deprecated: see grpc.WithBlock
 	GRPCCredentials   credentials.TransportCredentials
 	Insecure          bool
 	Compression       Compression
@@ -66,7 +66,7 @@ func New[T any](clientFactory func(grpc.ClientConnInterface) T, applyOptions ...
 	}
 
 	dialOpts := cfg.dialOptions()
-	grpcConn, err := grpc.Dial(cfg.BaseURL, dialOpts...)
+	grpcConn, err := grpc.NewClient(cfg.BaseURL, dialOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -122,10 +122,6 @@ func (c *Config) dialOptions() []grpc.DialOption {
 		connectParams.MinConnectTimeout = c.MinConnectTimeout
 	}
 	dialOpts = append(dialOpts, grpc.WithConnectParams(connectParams))
-
-	if c.IsBlockConnect {
-		dialOpts = append(dialOpts, grpc.WithBlock())
-	}
 
 	requestHeaders := c.requestHeaders()
 	unaryInterceptors := []grpc.UnaryClientInterceptor{
