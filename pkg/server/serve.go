@@ -10,10 +10,12 @@ import (
 	kybermetric "github.com/KyberNetwork/kyber-trace-go/pkg/metric"
 	kybertracer "github.com/KyberNetwork/kyber-trace-go/pkg/tracer"
 	_ "github.com/KyberNetwork/kyber-trace-go/tools"
+	"github.com/bufbuild/protovalidate-go"
+	"github.com/bufbuild/protovalidate-go/legacy"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors"
+	protovalidatemiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/selector"
-	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/validator"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
@@ -43,6 +45,10 @@ func Serve(ctx context.Context, cfg grpcserver.Config, opts ...grpcserver.Opt) {
 	cfg = cfg.Apply(opts...)
 
 	loggingLogger := cfg.LoggingInterceptor()
+	validator, err := protovalidate.New(legacy.WithLegacySupport(legacy.ModeMerge))
+	if err != nil {
+		panic(err)
+	}
 	recoveryOpt := recovery.WithRecoveryHandler(func(p any) error {
 		err := errors.Errorf("%v", p) // use github.com/pkg/errors for stack trace
 		panicStackTrace := fmt.Sprintf("%+v", err)
@@ -60,12 +66,12 @@ func Serve(ctx context.Context, cfg grpcserver.Config, opts ...grpcserver.Opt) {
 	unaryOpts := []grpc.UnaryServerInterceptor{
 		unaryHealthSkip(trace.UnaryServerInterceptor(cfg)),
 		unaryHealthSkip(logging.UnaryServerInterceptor(loggingLogger)),
-		validator.UnaryServerInterceptor(),
+		protovalidatemiddleware.UnaryServerInterceptor(validator),
 		recovery.UnaryServerInterceptor(recoveryOpt),
 	}
 	streamOpts := []grpc.StreamServerInterceptor{
 		streamHealthSkip(logging.StreamServerInterceptor(loggingLogger)),
-		validator.StreamServerInterceptor(),
+		protovalidatemiddleware.StreamServerInterceptor(validator),
 		recovery.StreamServerInterceptor(recoveryOpt),
 	}
 
