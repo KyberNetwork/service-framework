@@ -12,10 +12,15 @@ name: CI
 
 on:
   workflow_call:
+    inputs:
+      runs-on:
+        description: 'Type of machine to run the job on'
+        type: string
+        default: ubuntu-latest
 
 jobs:
   lint:
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runs-on }}
     steps:
       - name: Add git config for Go private module
         run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
@@ -31,7 +36,7 @@ jobs:
           args: --timeout=10m
 
   test:
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runs-on }}
     outputs:
       cov: ${{ steps.cov.outputs.cov }}
     steps:
@@ -59,7 +64,7 @@ jobs:
           } >> $GITHUB_OUTPUT
 
   test_base:
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runs-on }}
     if: github.event_name == 'pull_request'
     outputs:
       cov: ${{ steps.cov.outputs.cov }}
@@ -88,7 +93,7 @@ jobs:
           } >> $GITHUB_OUTPUT
 
   test_coverage:
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runs-on }}
     needs: [test, test_base]
     if: github.event_name == 'pull_request' && !cancelled() && needs.test.result == 'success'
     steps:

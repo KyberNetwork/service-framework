@@ -27,13 +27,17 @@ on:
       cache:
         description: 'Enable buildx caching (experimental)'
         type: boolean
+      runs-on:
+        description: 'Type of machine to run the job on'
+        type: string
+        default: self-hosted
 
 env:
   IMAGE_REGISTRY: asia.gcr.io
 
 jobs:
   build:
-    runs-on: self-hosted
+    runs-on: ${{ inputs.runs-on }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
