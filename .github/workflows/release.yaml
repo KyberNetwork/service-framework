@@ -34,6 +34,10 @@ on:
       release_body:
         description: 'Custom release body'
         type: string
+      runs-on:
+        description: 'Type of machine to run the job on'
+        type: string
+        default: self-hosted
 
 jobs:
   build:
@@ -43,9 +47,10 @@ jobs:
       service: ${{ inputs.service }}
       version: ${{ inputs.version }}
       file: ${{ inputs.file }}
+      runs-on: ${{ inputs.runs-on }}
     secrets: inherit
   tag:
-    runs-on: self-hosted
+    runs-on: '{{ inputs.runs-on }}'
     needs: build
     if: inputs.create_tag
     env:

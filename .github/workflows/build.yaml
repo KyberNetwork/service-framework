@@ -27,6 +27,10 @@ on:
       cache:
         description: 'Enable buildx caching (experimental)'
         type: boolean
+      runs-on:
+        description: 'Type of machine to run the job on'
+        type: string
+        default: self-hosted
 
 env:
   IMAGE_REGISTRY: asia.gcr.io
