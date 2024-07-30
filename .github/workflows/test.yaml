@@ -1,0 +1,23 @@
+name: 'Test'
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      a:
+        type: string
+      b:
+        type: string
+
+jobs:
+  test:
+    env:
+      a: 1
+      b: 2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test
+        # language=bash
+        run: |
+          echo "${{ inputs.a || inputs.b }}"
+          echo "${{ env.a || env.b }}"
