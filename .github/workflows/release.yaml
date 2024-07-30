@@ -17,6 +17,9 @@ on:
         description: 'Service repo name'
         type: string
         required: true
+      service_name:
+        description: 'Service name. Default to service'
+        type: string
       version:
         description: 'Release version'
         type: string
@@ -66,8 +69,8 @@ jobs:
           git push origin "refs/tags/$VERSION"
       - uses: softprops/action-gh-release@v2
         with:
-          # token: ${{ secrets.GH_PAT }}
           tag_name: ${{ env.VERSION }}
           generate_release_notes: true
-          name: ${{ inputs.release_name }}
+          name: ${{ inputs.release_name ||
+              format('{0} {1}', inputs.service_name || inputs.service, env.VERSION) }}
           body: ${{ inputs.release_body }}
