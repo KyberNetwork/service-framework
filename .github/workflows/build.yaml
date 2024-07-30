@@ -77,7 +77,7 @@ jobs:
           labels: |
             kyber.network.schema-version=1.0
             kyber.network.name=${{ inputs.service }}
-            kyber.network.version=${{ steps.prepare.outputs.version_tag }}
+            kyber.network.version=${{ inputs.version }}
             kyber.network.vcs-ref=${{ github.sha }}
       - uses: docker/build-push-action@v6
         with:
@@ -86,7 +86,7 @@ jobs:
           build-args: |
             GH_USER=kyber-ci-bot
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
+          labels: ${{ steps.meta.outputs.labels }}
           secrets: |
             "gh_pat=${{ secrets.GH_PAT }}"
           cache-from: type=gha
