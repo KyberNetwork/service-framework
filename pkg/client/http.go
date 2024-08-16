@@ -24,6 +24,9 @@ func (*HttpCfg) OnUpdate(_, new *HttpCfg) {
 				r.Header.Set(common.HeaderXRequestId, traceID.String())
 			}
 		}
+		if len(r.Header.Values(common.HeaderXClientId)) == 0 {
+			r.Header.Set(common.HeaderXClientId, common.GetServiceClientId())
+		}
 		return nil
 	})
 	if tracer.Provider() != nil {

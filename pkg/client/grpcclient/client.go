@@ -2,10 +2,8 @@ package grpcclient
 
 import (
 	"context"
-	"os"
 	"time"
 
-	"github.com/KyberNetwork/kyber-trace-go/pkg/constant"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/validator"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
@@ -147,10 +145,7 @@ func (c *Config) requestHeaders() map[string]string {
 		c.Headers = make(map[string]string)
 	}
 	if c.ClientID == "" {
-		c.ClientID = os.Getenv(constant.EnvKeyOtelServiceName)
-	}
-	if c.ClientID == "" {
-		c.ClientID, _ = os.Hostname()
+		c.ClientID = common.GetServiceClientId()
 	}
 	c.Headers[common.HeaderXClientId] = c.ClientID
 	return c.Headers
