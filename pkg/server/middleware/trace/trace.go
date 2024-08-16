@@ -60,12 +60,11 @@ func UnaryServerInterceptor(cfg grpcserver.Config) grpc.UnaryServerInterceptor {
 }
 
 func clientIdFromCtx(ctx context.Context) string {
-	md, _ := metadata.FromIncomingContext(ctx)
-	header := md[common.HeaderXClientId]
-	if len(header) == 0 {
+	values := metadata.ValueFromIncomingContext(ctx, common.HeaderXClientId)
+	if len(values) == 0 {
 		return common.ClientIdUnknown
 	}
-	return header[0]
+	return values[0]
 }
 
 // StreamServerInterceptor returns a new streaming server interceptor that wraps outcome error.

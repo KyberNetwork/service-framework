@@ -3,7 +3,9 @@ package common
 import (
 	"context"
 	"encoding/hex"
+	"os"
 
+	"github.com/KyberNetwork/kyber-trace-go/pkg/constant"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -39,4 +41,14 @@ func CtxWithTraceId(ctx context.Context, traceIdStr string) context.Context {
 		TraceID: traceId,
 		Remote:  true,
 	}))
+}
+
+func GetServiceClientId() string {
+	if serviceName := os.Getenv(constant.EnvKeyOtelServiceName); serviceName != "" {
+		return serviceName
+	}
+	if hostname, err := os.Hostname(); err == nil {
+		return hostname
+	}
+	return ClientIdUnknown
 }
