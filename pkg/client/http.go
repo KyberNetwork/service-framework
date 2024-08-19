@@ -24,11 +24,11 @@ func (*HttpCfg) OnUpdate(_, new *HttpCfg) {
 				r.Header.Set(common.HeaderXRequestId, traceID.String())
 			}
 		}
-		if len(r.Header.Values(common.HeaderXClientId)) == 0 {
-			r.Header.Set(common.HeaderXClientId, common.GetServiceClientId())
-		}
 		return nil
 	})
+	if len(new.C.Header.Values(common.HeaderXClientId)) == 0 {
+		new.C.Header.Set(common.HeaderXClientId, common.GetServiceClientId())
+	}
 	if tracer.Provider() != nil {
 		new.C.SetTransport(otelhttp.NewTransport(new.C.GetClient().Transport))
 	}
