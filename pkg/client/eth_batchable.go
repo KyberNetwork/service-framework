@@ -79,6 +79,12 @@ func (b *BatchableEthClient) CallContract(ctx context.Context, msg ethereum.Call
 	return task.Result()
 }
 
+// Flush executes all currently queued requests.
+func (b *BatchableEthClient) Flush() {
+	b.batcher.Flush()
+	b.archiveBatcher.Flush()
+}
+
 func (b *BatchableEthClient) Close() {
 	b.EthClient.Close()
 	b.batcher.Close()
