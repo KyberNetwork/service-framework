@@ -31,14 +31,7 @@ func (c *GrpcCfg[T]) WithFactory(clientFactory func(grpc.ClientConnInterface) T)
 
 func (*GrpcCfg[T]) OnUpdate(old, new *GrpcCfg[T]) {
 	ctx := context.Background()
-	var err error
-	new.grpcClient, err = grpcclient.New(new.clientFactory, grpcclient.WithConfig(&new.Config))
-	if err != nil {
-		klog.Errorf(ctx, "GrpcCfg.OnUpdate|grpcclient.New failed|err=%v", err)
-		return
-	}
 
-	new.C = new.grpcClient.C
 	if old != nil {
 		oldGrpcClient := old.grpcClient
 		time.AfterFunc(GrpcCloseDelay, func() {
@@ -47,4 +40,13 @@ func (*GrpcCfg[T]) OnUpdate(old, new *GrpcCfg[T]) {
 			}
 		})
 	}
+
+	var err error
+	new.grpcClient, err = grpcclient.New(new.clientFactory, grpcclient.WithConfig(&new.Config))
+	if err != nil {
+		klog.Errorf(ctx, "GrpcCfg.OnUpdate|grpcclient.New failed|err=%v", err)
+		return
+	}
+
+	new.C = new.grpcClient.C
 }
