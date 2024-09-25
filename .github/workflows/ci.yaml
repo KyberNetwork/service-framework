@@ -109,7 +109,7 @@ jobs:
                   printf("| %s | %.2f%% | %.2f%% | %s |\n", pkg, a, b, (a && b < a) ? ":x:" : ":heavy_check_mark:")
                 }
 
-                BEGIN { print("Test coverage changes:\n" \
+                BEGIN { print("<details>\n<summary>Test coverage changes:</summary>\n\n" \
                   "| Package | Before | After | Diff |\n" \
                   "| ------- | -----: | ----: | ---- |")
                 }
@@ -124,6 +124,7 @@ jobs:
 
                 END {
                   diff(a, b)
+                  print("</details>")
                 }' | tee -a $GITHUB_STEP_SUMMARY
             echo 'EOF'
           } >> $GITHUB_OUTPUT
