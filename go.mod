@@ -5,7 +5,7 @@ go 1.22
 toolchain go1.22.3
 
 require (
-	github.com/KyberNetwork/kutils v0.3.2
+	github.com/KyberNetwork/kutils v0.3.4-0.temp
 	github.com/KyberNetwork/kyber-trace-go v0.1.2
 	github.com/bufbuild/protovalidate-go v0.6.4
 	github.com/cenkalti/backoff/v4 v4.3.0

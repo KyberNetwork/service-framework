@@ -2,8 +2,8 @@ buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.34.2-2024071716455
 buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.34.2-20240717164558-a6c49f84cc0f.2/go.mod h1:ylS4c28ACSI59oJrOdW4pHS4n0Hw4TgSPHn8rpHl4Yw=
 github.com/DataDog/zstd v1.4.5 h1:EndNeuB0l9syBZhut0wns3gV1hL8zX8LIu6ZiVHWLIQ=
 github.com/DataDog/zstd v1.4.5/go.mod h1:1jcaCB/ufaK+sKp1NBhlGmpz41jOoPQ35bpF36t7BBo=
-github.com/KyberNetwork/kutils v0.3.2 h1:cBoyP99gSO7+PzCp1/5LLi5rsIw965NxJ9fRvQtlPe0=
-github.com/KyberNetwork/kutils v0.3.2/go.mod h1:a6mG7UxKANmqzs2FnAe9FzGXQ8fRVxq/PWIrSt+L+uc=
+github.com/KyberNetwork/kutils v0.3.4-0.temp h1:98u7oOoBD1xabEsuwuNe4AD+y/mMyD03HhnEHM+S8+w=
+github.com/KyberNetwork/kutils v0.3.4-0.temp/go.mod h1:a6mG7UxKANmqzs2FnAe9FzGXQ8fRVxq/PWIrSt+L+uc=
 github.com/KyberNetwork/kyber-trace-go v0.1.2 h1:x82SuCYTj4naoGNQ02DoSQgl7f07grl8RL8cKGAFNLw=
 github.com/KyberNetwork/kyber-trace-go v0.1.2/go.mod h1:X6hVacmKMeOEOlFh4TyfEHaEVRerFQ5YLuQ4keRV3hw=
 github.com/KyberNetwork/logger v0.1.0 h1:Iibu9Ls+tipjR+C0iXhzUYM1VtRgmmR1HHWGufPYcbs=
