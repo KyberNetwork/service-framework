@@ -1,0 +1,53 @@
+name: PR to bump Go module version
+
+# Sample concurrency config:
+# concurrency:
+#   group: ci-workflow-${{ github.ref }}-${{ github.event_name }}
+#   cancel-in-progress: true
+# Sample permissions config:
+# permissions:
+#   issues: write
+#   pull-requests: write
+
+on:
+  workflow_call:
+    inputs:
+      repos:
+        description: 'json arrays of repos to raise bump PRs to'
+        type: string
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        repo: ${{ fromJson(inputs.repos) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{ matrix.repo }}
+          token: ${{ secrets.GH_PAT }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      - name: bump version
+        run: |
+          git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
+          go env -w GOPRIVATE=github.com/${{ github.repository_owner }}
+          go get github.com/${{ github.repository }}@${{ github.ref_name }}
+          go mod tidy
+      - uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE }}
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+          fingerprint: ${{ secrets.GPG_PUBLIC }}
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GH_PAT }}
+          commit-message: 'chore: bump ${{ github.event.repository.name }} to ${{ github.ref_name }}'
+          committer: kyber-ci-bot <kyber-ci-bot@users.noreply.github.com>
+          branch: ft/bump_${{ github.event.repository.name }}
+          delete-branch: true
+          title: 'chore: bump ${{ github.event.repository.name }} to ${{ github.ref_name }}'
+          body: 'chore: bump ${{ github.event.repository.name }} to ${{ github.ref_name }}'
