@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/KyberNetwork/service-framework/pkg/common"
 	"github.com/KyberNetwork/service-framework/pkg/observe/kmetric"
@@ -28,12 +29,14 @@ func UnaryServerInterceptor(cfg grpcserver.Config) grpc.UnaryServerInterceptor {
 	wrapper := grpcStatusWrapper{cfg: cfg}
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (res any,
 		err error) {
+		var traceIdStr string
 		if traceId, ok := common.TraceIdFromCtx(ctx); ok {
-			traceIdStr := traceId.String()
+			traceIdStr = traceId.String()
 			_ = grpc.SetHeader(ctx, metadata.Pairs(common.HeaderXTraceId, traceIdStr))
 			ctx = klog.CtxWithLogger(ctx,
 				klog.WithFields(ctx, klog.Fields{common.LogFieldTraceId: traceIdStr}))
 			defer func() {
+
 				if res, ok := res.(proto.Message); ok && res != nil {
 					m := res.ProtoReflect()
 					if fd := m.Descriptor().Fields().ByName(FieldNameRequestId); fd != nil &&
@@ -52,6 +55,11 @@ func UnaryServerInterceptor(cfg grpcserver.Config) grpc.UnaryServerInterceptor {
 		res, err = handler(ctx, req)
 		if err != nil {
 			st := wrapper.GrpcStatus(err)
+			if reqIdDetail, err := structpb.NewStruct(map[string]any{FieldNameRequestId: traceIdStr}); err == nil {
+				if stWithReqId, err := st.WithDetails(reqIdDetail); err == nil {
+					st = stWithReqId
+				}
+			}
 			code = st.Code()
 			return nil, st.Err()
 		}
