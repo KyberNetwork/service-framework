@@ -18,12 +18,15 @@ on:
         type: string
         required: true
       service_name:
-        description: 'Service name. Default to service'
+        description: 'Service name in repo release title. Default to service'
         type: string
+      version_bump:
+        description: 'Version bump type'
+        type: string
+        default: patch
       version:
-        description: 'Release version'
+        description: 'Release version (optional, overrides version_bump)'
         type: string
-        required: true
       file:
         description: 'Dockerfile path if not the default one'
         type: string
@@ -43,34 +46,56 @@ on:
         default: self-hosted
 
 jobs:
+  prepare:
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      build: ${{ steps.build.outputs.build }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: build
+        name: Check whether to build
+        run: echo "build=${{ hashFiles(inputs.file || 'Dockerfile') != '' }}" >> "$GITHUB_OUTPUT"
+      - id: bump
+        name: Generate next semver version
+        if: inputs.version == ''
+        uses: docker://ghcr.io/ngokimphu/github-tag-action:1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          DEFAULT_BUMP: ${{ inputs.version_bump }}
+          WITH_V: true
+          RELEASE_BRANCHES: '.*'
+          DRY_RUN: true
+      - id: version
+        name: Set version to release
+        env:
+          VERSION: ${{ inputs.version || steps.bump.outputs.new_tag }}
+        run: echo "version=v${VERSION#v}" >> "$GITHUB_OUTPUT"
   build:
+    needs: prepare
+    if: needs.prepare.outputs.build == 'true'
     uses: ./.github/workflows/build.yaml
     with:
       cluster: ${{ inputs.cluster }}
       service: ${{ inputs.service }}
-      version: ${{ inputs.version }}
+      version: ${{ needs.prepare.outputs.version }}
       file: ${{ inputs.file }}
       runs-on: ${{ inputs.runs-on }}
     secrets: inherit
   tag:
     runs-on: ${{ inputs.runs-on }}
-    needs: build
-    if: inputs.create_tag
+    needs: [prepare, build]
+    if: inputs.create_tag && !cancelled() && !failure()
     env:
-      VERSION: ${{ inputs.version }}
+      VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Create tag
-        # language=bash
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
-          git tag --annotate --message "${{ inputs.service }} $VERSION" "$VERSION"
-          git push origin "refs/tags/$VERSION"
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.VERSION }}
-          generate_release_notes: true
+          body: ${{ inputs.release_body }}
           name: ${{ inputs.release_name ||
               format('{0} {1}', inputs.service_name || inputs.service, env.VERSION) }}
-          body: ${{ inputs.release_body }}
+          tag_name: ${{ env.VERSION }}
+          target_commitish: ${{ github.ref }}
+          token: ${{ secrets.GH_PAT }}
+          generate_release_notes: true
