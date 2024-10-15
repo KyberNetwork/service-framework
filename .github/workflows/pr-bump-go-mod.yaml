@@ -34,7 +34,10 @@ jobs:
         run: |
           git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
           go env -w GOPRIVATE=github.com/${{ github.repository_owner }}
-          go get github.com/${{ github.repository }}@${{ github.ref_name }}
+          go get github.com/${{ github.repository }}@${{ github.ref_name }} || {
+            sed -i -E '\%^(require)?\s*github.com/${{ github.repository }}\s+\S+$%d' go.mod
+            go get github.com/${{ github.repository }}@${{ github.ref_name }}
+          }
           go mod tidy
       - uses: crazy-max/ghaction-import-gpg@v6
         with:
