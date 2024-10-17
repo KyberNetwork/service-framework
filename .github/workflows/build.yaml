@@ -73,7 +73,7 @@ jobs:
             type=semver,value=${{ inputs.version }},pattern=v{{major}}.{{minor}}
             type=semver,value=${{ inputs.version }},pattern=v{{major}}
             type=ref,event=pr
-            type=raw,value={{branch}}-{{sha}},enable=true
+            type=raw,value={{base_ref}}-{{sha}},enable=true
           labels: |
             kyber.network.schema-version=1.0
             kyber.network.name=${{ inputs.service }}
