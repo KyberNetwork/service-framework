@@ -16,10 +16,6 @@ jobs:
   deploy:
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/kyber-applications
-          token: ${{ secrets.GH_PAT }}
       - uses: crazy-max/ghaction-import-gpg@v6
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE }}
@@ -41,7 +37,6 @@ jobs:
               sed -i -E "0,/^\s+tag:/s/(tag: ).+/\\1$TAG/" $dir/values.yaml
             fi
           done
-          git checkout -b test/deploy
           git commit -S -am "[${ENV%-*}] ${{ github.repository }}: deploy $TAG"$'\n\n'"$(
             echo "Co-authored-by: ${{ github.actor }} <${{ github.actor }}@users.noreply.github.com>")"
           git push origin HEAD
