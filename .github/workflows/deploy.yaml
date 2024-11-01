@@ -26,15 +26,16 @@ jobs:
           git_user_signingkey: true
           git_commit_gpgsign: true
           fingerprint: ${{ secrets.GPG_PUBLIC }}
-      - name: update tag patches
+      - name: Update tag patches
         env:
           ENV: pre-release
           TAG: ${{ inputs.version }}
-        shell: zsh -e {0}
         run: |
-          DIRS=(${{ env.ENV }}/${{ inputs.services }}/**/Chart.yaml(N:h))
-          for dir in $DIRS; do
-            if source_files=($dir/.argocd-source-*.yaml(N)); [ $#source_files -gt 0 ]; then
+          set -e
+          shopt -s nullglob globstar
+          CHARTS=(${{ env.ENV }}/${{ inputs.services }}/**/Chart.yaml)
+          for dir in ${CHARTS[@]%/*}; do
+            if source_files=($dir/.argocd-source-*.yaml); [ ${#source_files[@]} -gt 0 ]; then
               sed -i -E '/server\.image\.tag/,/value:/s/(value: ).+/\1'"$TAG/" $source_files
             else
               sed -i -E "0,/^\s+tag:/s/(tag: ).+/\\1$TAG/" $dir/values.yaml
