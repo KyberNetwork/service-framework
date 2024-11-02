@@ -16,7 +16,7 @@ on:
       runs-on:
         description: 'Type of machine to run the job on'
         type: string
-        default: ubuntu-latest
+        default: self-hosted
 
 jobs:
   lint:
