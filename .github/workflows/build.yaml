@@ -79,7 +79,7 @@ jobs:
             type=semver,value=${{ inputs.version }},pattern=v{{major}}.{{minor}}
             type=semver,value=${{ inputs.version }},pattern=v{{major}}
             type=ref,event=branch
-            type=raw,value={{branch}}-{{sha}},enable=${{ github.event_name == 'push' }}
+            type=raw,value={{branch}}-{{sha}},enable=${{ inputs.version != '' }}
           labels: |
             kyber.network.schema-version=1.0
             kyber.network.name=${{ inputs.service }}
