@@ -15,10 +15,14 @@ on:
       repos:
         description: 'json arrays of repos to raise bump PRs to'
         type: string
+      runs-on:
+        description: 'Type of machine to run the job on'
+        type: string
+        default: self-hosted
 
 jobs:
   bump:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs-on }}
     strategy:
       matrix:
         repo: ${{ fromJson(inputs.repos) }}
