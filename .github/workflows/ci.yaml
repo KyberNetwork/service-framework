@@ -16,10 +16,11 @@ on:
       runs-on:
         description: 'Type of machine to run the job on'
         type: string
+        default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
 
 jobs:
   lint:
-    runs-on: ${{ inputs.runs-on || github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runs-on }}
     steps:
       - name: Add git config for Go private module
         run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/

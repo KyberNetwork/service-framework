@@ -18,10 +18,11 @@ on:
       runs-on:
         description: 'Type of machine to run the job on'
         type: string
+        default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
 
 jobs:
   bump:
-    runs-on: ${{ inputs.runs-on || github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runs-on }}
     strategy:
       matrix:
         repo: ${{ fromJson(inputs.repos) }}

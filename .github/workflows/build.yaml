@@ -30,6 +30,7 @@ on:
       runs-on:
         description: 'Type of machine to run the job on'
         type: string
+        default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
     outputs:
       tag:
         description: 'Built tag'
@@ -40,7 +41,7 @@ env:
 
 jobs:
   build:
-    runs-on: ${{ inputs.runs-on || github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runs-on }}
     outputs:
       tag: ${{ steps.output.outputs.tag }}
     steps:

@@ -11,10 +11,14 @@ on:
         description: 'tag to deploy'
         type: string
         required: true
+      runs-on:
+        description: 'Type of machine to run the job on'
+        type: string
+        default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
 
 jobs:
   deploy:
-    runs-on: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runs-on }}
     steps:
       - uses: actions/checkout@v4
         with:
