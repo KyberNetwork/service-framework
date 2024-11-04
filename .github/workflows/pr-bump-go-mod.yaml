@@ -34,13 +34,17 @@ jobs:
         with:
           go-version-file: 'go.mod'
       - name: bump version
+        env:
+          MOD: github.com/${{ github.repository }}
+          VER: ${{ github.ref_name }}
         run: |
           git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
           go env -w GOPRIVATE=github.com/${{ github.repository_owner }}
-          go get github.com/${{ github.repository }}@${{ github.ref_name }} || {
-            sed -i -E '\%^(require)?\s*github.com/${{ github.repository }}\s+\S+$%d' go.mod
-            go get github.com/${{ github.repository }}@${{ github.ref_name }}
-          }
+          try=0
+          while out=$(go get $MOD@$VER 2>&1); EC=$?; echo "$out"; [ $EC -ne 0 ]; do
+            sed -i -E '\%^(require)?\s*'"$(<<<"$out" grep -oP 'go: \K[^@]+')"'\s+\S+$%d' go.mod
+            [ $((++try)) -gt 3 ] && exit 1
+          done
           go mod tidy
       - uses: crazy-max/ghaction-import-gpg@v6
         with:
