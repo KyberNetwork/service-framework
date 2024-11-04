@@ -43,11 +43,10 @@ on:
       runs-on:
         description: 'Type of machine to run the job on'
         type: string
-        default: self-hosted
 
 jobs:
   prepare:
-    runs-on: ${{ inputs.runs-on }}
+    runs-on: ${{ inputs.runs-on || github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
     outputs:
       build: ${{ steps.build.outputs.build }}
       version: ${{ steps.version.outputs.version }}
