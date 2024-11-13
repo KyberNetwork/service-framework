@@ -24,7 +24,7 @@ on:
       file:
         description: 'Dockerfile path if not the default one'
         type: string
-        default: 'docker/DockerfilePy'
+        default: ./docker/DockerfilePy
       cache:
         description: 'Enable buildx caching (experimental)'
         type: boolean
