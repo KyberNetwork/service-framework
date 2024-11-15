@@ -51,7 +51,8 @@ jobs:
         # language=bash
         run: |
           go test -race -cover -vet=off ./... >cover.out || EC=$?;
-            { echo '```'; cat cover.out; } | tee -a $GITHUB_STEP_SUMMARY; (exit $EC)
+          { echo -e '<details>\n<summary>New test result:</summary>\n\n```'
+            cat cover.out; } | tee -a $GITHUB_STEP_SUMMARY; (exit $EC)
       - id: cov
         name: Get coverage
         # language=bash
@@ -82,7 +83,7 @@ jobs:
         name: Get coverage
         # language=bash
         run: |
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo -e '<details>\n<summary>Base test result:</summary>\n\n```' >> $GITHUB_STEP_SUMMARY
           {
             echo 'cov<<EOF'
             go test -covermode=set -vet=off ./... |
