@@ -30,7 +30,7 @@ jobs:
           go-version-file: 'go.mod'
           cache: false
 
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@971e284b6050e8a5849b72094c50ab08da042db8 # v6.1.1
         with:
           version: v1.60
           args: --timeout=10m
@@ -130,8 +130,9 @@ jobs:
             echo 'EOF'
           } >> $GITHUB_OUTPUT
       - name: Comment PR
-        uses: thollander/actions-comment-pull-request@v2
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b # v3.0.1
         with:
-          pr_number: ${{ github.event.pull_request.number }}
-          comment_tag: cov
+          github-token: ${{ secrets.GH_PAT }}
           message: ${{ steps.cov.outputs.report }}
+          pr-number: ${{ github.event.pull_request.number }}
+          comment-tag: cov

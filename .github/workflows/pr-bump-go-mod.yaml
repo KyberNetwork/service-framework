@@ -47,14 +47,14 @@ jobs:
             [ $((++try)) -gt 3 ] && exit 1
           done
           go mod tidy
-      - uses: crazy-max/ghaction-import-gpg@v6
+      - uses: crazy-max/ghaction-import-gpg@cb9bde2e2525e640591a934b1fd28eef1dcaf5e5 # v6.2.0
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE }}
           git_user_signingkey: true
           git_commit_gpgsign: true
           fingerprint: ${{ secrets.GPG_PUBLIC }}
       - id: pr
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@5e914681df9dc83aa4e4905692ca88beb2f9e91f # v7.0.5
         with:
           token: ${{ secrets.GH_PAT }}
           commit-message: 'chore: bump ${{ github.event.repository.name }} to ${{ github.ref_name }}'
