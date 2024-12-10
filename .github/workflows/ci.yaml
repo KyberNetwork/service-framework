@@ -17,6 +17,12 @@ on:
         description: 'Type of machine to run the job on'
         type: string
         default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+      env:
+        description: 'A set of environment variables in JSON format'
+        type: string
+        default: '{}'
+
+env: ${{ fromJSON(inputs.env) }}
 
 jobs:
   lint:
