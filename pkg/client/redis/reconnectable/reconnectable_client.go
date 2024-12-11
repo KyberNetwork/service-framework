@@ -1,4 +1,4 @@
-package reconnectredis
+package reconnectable
 
 import (
 	"context"

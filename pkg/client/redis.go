@@ -7,7 +7,7 @@ import (
 	"github.com/KyberNetwork/kutils/klog"
 	"github.com/KyberNetwork/kyber-trace-go/pkg/metric"
 	"github.com/KyberNetwork/kyber-trace-go/pkg/tracer"
-	"github.com/KyberNetwork/service-framework/pkg/client/reconnectredis"
+	"github.com/KyberNetwork/service-framework/pkg/client/redis/reconnectable"
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 )
@@ -49,7 +49,7 @@ func (*RedisCfg) OnUpdate(old, new *RedisCfg) {
 
 func newRedisClient(opts *redis.UniversalOptions) redis.UniversalClient {
 	if opts.MasterName == "" {
-		return reconnectredis.New(opts)
+		return reconnectable.New(opts)
 	}
 	failoverOpts := opts.Failover()
 	failoverOpts.RouteByLatency = opts.RouteByLatency
