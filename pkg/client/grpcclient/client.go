@@ -134,7 +134,7 @@ func (c *Config) dialOptions() []grpc.DialOption {
 	dialOpts = append(dialOpts, grpc.WithChainUnaryInterceptor(unaryInterceptors...))
 
 	observe.EnsureTracerProvider()
-	dialOpts = append(dialOpts, grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
+	dialOpts = append(dialOpts, grpc.WithStatsHandler(otelgrpc.NewClientHandler()), grpc.WithDisableServiceConfig())
 
 	return append(dialOpts, c.DialOptions...)
 }
