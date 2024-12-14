@@ -1,4 +1,4 @@
-package reconnectable
+package reconredis
 
 import (
 	"context"
@@ -25,7 +25,9 @@ func TestRefreshClientWhenServerCrash(t *testing.T) {
 	cfg := &redis.UniversalOptions{
 		Addrs: []string{srv.Addr()},
 	}
-	rc := New(cfg)
+	rc := New(func() redis.UniversalClient {
+		return redis.NewUniversalClient(cfg)
+	})
 	oldClient := rc.UniversalClient
 
 	// Step 3: Simulate server failure by stopping the Redis server
@@ -47,7 +49,7 @@ func TestRefreshClientWhenServerCrash(t *testing.T) {
 
 	// Check that the client refresh was triggered and the refresh time is updated
 	require.NotNil(t, rc.lastRefreshTime)
-	lastRefresh := rc.lastRefreshTime.Load().(time.Time)
+	lastRefresh := rc.lastRefreshTime
 	assert.True(t, time.Since(lastRefresh) < time.Second, "Refresh time should be updated")
 
 	// Verify that the client refresh process was completed (no ongoing refresh)
@@ -57,13 +59,14 @@ func TestRefreshClientWhenServerCrash(t *testing.T) {
 	assert.NotEqual(t, oldClient, newClient, "UniversalClient should be updated")
 
 	// Step 6: Restart the Redis server to simulate recovery
-	srv.Start()
+	assert.NoError(t, srv.Start())
 
 	// Step 7: Verify that the client can now successfully ping the server
-	require.NoError(t, rc.Ping(context.Background()).Err(), "Ping should succeed after client refresh and server recovery")
+	require.NoError(t, rc.Ping(context.Background()).Err(),
+		"Ping should succeed after client refresh and server recovery")
 
 	// Verify that the refresh time hasn't been updated since the recovery (no new refresh required)
-	assert.True(t, lastRefresh == rc.lastRefreshTime.Load().(time.Time), "Refresh time shouldn't be updated")
+	assert.True(t, lastRefresh == rc.lastRefreshTime, "Refresh time shouldn't be updated")
 
 	// Ensure that the client is still the refreshed one (not the old client)
 	assert.Equal(t, newClient, rc.UniversalClient, "UniversalClient should still be the updated one")
@@ -80,7 +83,9 @@ func BenchmarkSetCommandWithWrappedClient(b *testing.B) {
 		Addrs: []string{srv.Addr()},
 	}
 
-	rc := New(cfg)
+	rc := New(func() redis.UniversalClient {
+		return redis.NewUniversalClient(cfg)
+	})
 	b.ResetTimer()
 
 	b.Run("SetCommand", func(b *testing.B) {
@@ -104,7 +109,9 @@ func BenchmarkGetCommandWithWrappedClient(b *testing.B) {
 		Addrs: []string{srv.Addr()},
 	}
 
-	rc := New(cfg)
+	rc := New(func() redis.UniversalClient {
+		return redis.NewUniversalClient(cfg)
+	})
 	rc.Set(context.Background(), "key", "value", 0)
 
 	b.ResetTimer()
