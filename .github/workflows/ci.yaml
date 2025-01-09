@@ -102,7 +102,7 @@ jobs:
   test_coverage:
     runs-on: ${{ inputs.runs-on }}
     needs: [test, test_base]
-    if: github.event_name == 'pull_request' && !cancelled() && needs.test.result == 'success'
+    if: github.event_name == 'pull_request' && !cancelled() && needs.test.result == 'success' && github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
     steps:
       - id: cov
         name: Generate coverage report
