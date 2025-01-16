@@ -1,0 +1,77 @@
+name: 'Post messages to Slack'
+
+# Must use secrets: inherit
+
+# Check that your service repo is private if this service-framework repo is also private
+# Sample concurrency config:
+# concurrency:
+#   group: ci-workflow-${{ github.ref }}-${{ github.event_name }}
+#   cancel-in-progress: true
+
+on:
+  workflow_call:
+    inputs:
+      channel_id:
+        description: 'Channel ID where the release notes will be posted'
+        type: string
+        required: true
+      title:
+        description: 'Title of the message'
+        type: string
+        required: true
+      body:
+        description: 'Body of the message'
+        type: string
+        required: true
+      runs-on:
+        description: 'Type of machine to run the job on'
+        type: string
+        default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+
+jobs:
+  post_to_slack:
+    runs-on: ${{ inputs.runs-on }}
+    env:
+      title: ${{ inputs.title }}
+      body: ${{ inputs.body }}
+    steps:
+      - name: Escape inputs
+        run: |
+          for env_var in title body; do
+            echo "$env_var<<EOF"
+            <<<"${!env_var}" sed -E '
+              s/^\* /• /                                              # bullet point
+              s/## (.+)/*\1*\n/                                       # heading
+              s/\*\*(\S.*?)\*\*/_\1_/g                                # emphasis
+              s,https://.+?/(pull/[0-9]+|[^/ ]+\.\.\.[^/ ]+),<&|\1>,g # shorten GitHub links
+              '
+            echo "EOF"
+          done >> "$GITHUB_ENV"
+      - uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d # v2.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            {
+              "channel": "${{ inputs.channel_id }}",
+              "text": ${{ toJSON(env.title) }},
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": ${{ toJSON(env.title) }}
+                  }
+                },
+                {
+                  "type": "divider"
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": ${{ toJSON(env.body) }}
+                  }
+                }
+              ]
+            }
