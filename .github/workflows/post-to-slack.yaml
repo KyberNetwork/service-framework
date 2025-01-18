@@ -40,6 +40,7 @@ jobs:
           for env_var in title body; do
             echo "$env_var<<EOF"
             <<<"${!env_var}" sed -E '
+              /^<!--.*-->/d                                           # remove comments
               s/^\* /• /                                              # bullet point
               s/## (.+)/*\1*\n/                                       # heading
               s/\*\*(\S.*?)\*\*/_\1_/g                                # emphasis
