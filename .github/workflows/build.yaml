@@ -80,7 +80,7 @@ jobs:
             type=semver,value=${{ inputs.version }},pattern=v{{major}}
             type=ref,event=tag
             type=ref,event=pr
-            type=raw,value=feat/extends_liquidity_score_indexer-{{sha}},enable=true
+            type=raw,value=extends_liquidity_score_indexer-{{sha}},enable=true
           labels: |
             kyber.network.schema-version=1.0
             kyber.network.name=${{ inputs.service }}
