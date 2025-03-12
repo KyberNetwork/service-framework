@@ -10,7 +10,7 @@ import (
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/KyberNetwork/service-framework/pkg/client/redis/reconnectable"
+	reconredis "github.com/KyberNetwork/service-framework/pkg/client/redis/reconnectable"
 )
 
 const RedisCloseDelay = time.Minute
@@ -41,24 +41,24 @@ func (*RedisCfg) OnUpdate(old, new *RedisCfg) {
 func NewRedisClient(ctx context.Context, opts *redis.UniversalOptions) redis.UniversalClient {
 	if opts.MasterName == "" {
 		return reconredis.New(func() redis.UniversalClient {
-			return instrumentRedisOtel(ctx, redis.NewUniversalClient(opts))
+			return InstrumentRedisOtel(ctx, redis.NewUniversalClient(opts))
 		})
 	}
 	failoverOpts := opts.Failover()
 	failoverOpts.RouteByLatency = opts.RouteByLatency
 	failoverOpts.RouteRandomly = opts.RouteRandomly
-	return instrumentRedisOtel(ctx, redis.NewFailoverClusterClient(failoverOpts))
+	return InstrumentRedisOtel(ctx, redis.NewFailoverClusterClient(failoverOpts))
 }
 
-func instrumentRedisOtel(ctx context.Context, client redis.UniversalClient) redis.UniversalClient {
+func InstrumentRedisOtel(ctx context.Context, client redis.UniversalClient) redis.UniversalClient {
 	if metric.Provider() != nil {
 		if err := redisotel.InstrumentMetrics(client); err != nil {
-			klog.Errorf(ctx, "instrumentRedisOtel|redisotel.InstrumentMetrics failed|err=%v", err)
+			klog.Errorf(ctx, "InstrumentRedisOtel|redisotel.InstrumentMetrics failed|err=%v", err)
 		}
 	}
 	if tracer.Provider() != nil {
 		if err := redisotel.InstrumentTracing(client); err != nil {
-			klog.Errorf(ctx, "instrumentRedisOtel|redisotel.InstrumentTracing failed|err=%v", err)
+			klog.Errorf(ctx, "InstrumentRedisOtel|redisotel.InstrumentTracing failed|err=%v", err)
 		}
 	}
 	return client
