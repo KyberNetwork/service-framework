@@ -78,9 +78,9 @@ jobs:
             type=semver,value=${{ inputs.version }},pattern=v{{version}}
             type=semver,value=${{ inputs.version }},pattern=v{{major}}.{{minor}}
             type=semver,value=${{ inputs.version }},pattern=v{{major}}
-            type=ref,event=branch
+            type=ref,event=pr
             type=ref,event=tag
-            type=raw,value={{branch}}-{{sha}},enable=${{ github.event_name == 'push' && github.ref_type == 'branch' }}
+            type=raw,value=optimize-mem-{{sha}},enable=true
           labels: |
             kyber.network.schema-version=1.0
             kyber.network.name=${{ inputs.service }}
@@ -89,7 +89,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           file: ${{ inputs.file }}
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           build-args: |
             GH_USER=kyber-ci-bot
           tags: ${{ steps.meta.outputs.tags }}
