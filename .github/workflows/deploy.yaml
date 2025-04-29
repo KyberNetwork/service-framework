@@ -37,7 +37,7 @@ jobs:
         run: |
           set -e
           shopt -s nullglob globstar
-          CHARTS=(${{ env.ENV }}/${{ inputs.services }}/base/indexer/Chart.yaml)
+          CHARTS=(${{ env.ENV }}/${{ inputs.services }}/**/Chart.yaml)
           for dir in ${CHARTS[@]%/*}; do
             if source_files=($dir/.argocd-source-*.yaml); [ ${#source_files[@]} -gt 0 ]; then
               sed -i -E '/server\.image\.tag/,/value:/s/(value: ).+/\1'"$TAG/" $source_files
