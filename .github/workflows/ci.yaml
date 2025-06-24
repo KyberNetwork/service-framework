@@ -56,7 +56,7 @@ jobs:
       - name: Run tests
         # language=bash
         run: |
-          go test -race -cover -vet=off ./... >cover.out || EC=$?;
+          go test -race -parallel 128 -p 32 -cover -vet=off ./... >cover.out || EC=$?;
           { echo -e '<details>\n<summary>New test result:</summary>\n\n```'
             cat cover.out; } | tee -a $GITHUB_STEP_SUMMARY; (exit $EC)
       - id: cov
@@ -92,7 +92,7 @@ jobs:
           echo -e '<details>\n<summary>Base test result:</summary>\n\n```' >> $GITHUB_STEP_SUMMARY
           {
             echo 'cov<<EOF'
-            go test -covermode=set -vet=off ./... |
+            go test -race -parallel 128 -p 32 -cover -vet=off ./... |
               tee -a $GITHUB_STEP_SUMMARY |
               grep -v 'no test files' |
               awk '{printf "%s a %.2f\n", $2, $5}'
