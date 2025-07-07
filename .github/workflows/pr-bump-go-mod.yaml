@@ -59,7 +59,7 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           commit-message: 'chore: bump ${{ github.event.repository.name }} to ${{ github.ref_name }}'
           committer: kyber-ci-bot <kyber-ci-bot@users.noreply.github.com>
-          branch: ft/bump_${{ github.event.repository.name }}
+          branch: chore/bump_${{ github.event.repository.name }}
           delete-branch: true
           title: 'chore: bump ${{ github.event.repository.name }} to ${{ github.ref_name }}'
           body: |
