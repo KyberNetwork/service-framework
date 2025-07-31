@@ -17,6 +17,10 @@ on:
         description: 'Type of machine to run the job on'
         type: string
         default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+      golangci-lint-version:
+        description: 'Version of golangci-lint'
+        type: string
+        default: v1.60
       env:
         description: 'A set of environment variables in JSON format'
         type: string
@@ -38,7 +42,7 @@ jobs:
 
       - uses: golangci/golangci-lint-action@2226d7cb06a077cd73e56eedd38eecad18e5d837 # v6.5.0
         with:
-          version: v1.60
+          version: ${{ inputs.golangci-lint-version }}
           args: --timeout=10m
 
   test:
