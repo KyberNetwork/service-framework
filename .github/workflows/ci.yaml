@@ -20,7 +20,7 @@ on:
       golangci-lint-version:
         description: 'Version of golangci-lint'
         type: string
-        default: v1.60
+        default: v2.4
       env:
         description: 'A set of environment variables in JSON format'
         type: string
