@@ -111,3 +111,7 @@ func (c *EthClient) StorageAt(ctx context.Context, account common.Address, key c
 func (c *EthClient) CallContract(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
 	return c.ClientFor(blockNumber).CallContract(ctx, call, blockNumber)
 }
+
+func (c *EthClient) BatchCallContext(ctx context.Context, batch []rpc.BatchElem) error {
+	return c.Client.Client().BatchCallContext(ctx, batch)
+}
