@@ -52,7 +52,7 @@ jobs:
       build: ${{ steps.build.outputs.build }}
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - id: build
         name: Check whether to build
         run: echo "build=${{ hashFiles(inputs.file || 'Dockerfile') != '' }}" >> "$GITHUB_OUTPUT"
@@ -89,7 +89,7 @@ jobs:
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: softprops/action-gh-release@6cbd405e2c4e67a21c47fa9e383d020e4e28b836 # v2.3.3
         with:
           body: ${{ inputs.release_body }}
