@@ -31,6 +31,10 @@ on:
         description: 'Type of machine to run the job on'
         type: string
         default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+      push:
+        description: 'Whether to push the built image'
+        type: boolean
+        default: true
     outputs:
       tag:
         description: 'Built tag'
@@ -89,7 +93,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           file: ${{ inputs.file }}
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ inputs.push }}
           build-args: |
             GH_USER=kyber-ci-bot
           tags: ${{ steps.meta.outputs.tags }}
