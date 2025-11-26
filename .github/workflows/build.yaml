@@ -78,6 +78,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_REGISTRY }}/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
+          flavor: |
+            latest=false
           tags: |
             type=semver,value=${{ inputs.version }},pattern=v{{version}}
             type=semver,value=${{ inputs.version }},pattern=v{{major}}.{{minor}}
