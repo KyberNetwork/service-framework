@@ -54,12 +54,15 @@ jobs:
         id: branch
         run: |
           if [ "${{ github.event_name }}" == "pull_request" ]; then
-            echo "name=${{ github.head_ref }}" >> $GITHUB_OUTPUT
+            BRANCH_NAME="${{ github.head_ref }}"
           elif [ "${{ github.ref_type }}" == "branch" ]; then
-            echo "name=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+            BRANCH_NAME="${GITHUB_REF#refs/heads/}"
           else
-            echo "name=sha" >> $GITHUB_OUTPUT
+            BRANCH_NAME="sha"
           fi
+          # Replace slashes with hyphens for Docker tag compatibility
+          BRANCH_NAME="${BRANCH_NAME//\//-}"
+          echo "name=$BRANCH_NAME" >> $GITHUB_OUTPUT
       - uses: docker/setup-buildx-action@v3
       - name: Cache for buildx
         uses: actions/cache@v4
