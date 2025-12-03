@@ -46,8 +46,6 @@ jobs:
             fi
           done
           [ -z "$(git status --porcelain)" ] && exit 0
-          git commit -S -am "[${ENV%-*}] ${{ github.event.repository.name }}: deploy $TAG"$'\n\n'"$(
-            echo "Triggered by ${{ github.event.repository.url }}/actions/runs/${{ github.run_id }}")"$'\n\n'"$(
-            echo "Co-authored-by: ${{ github.actor }} <${{ github.actor }}@users.noreply.github.com>")"
+          git commit -S -am "[${ENV%-*}] ${{ github.event.repository.name }}: deploy $TAG"$'\n\n'"$(echo "Triggered by ${{ github.event.repository.url }}/actions/runs/${{ github.run_id }}")"$'\n\n'"$(echo "Co-authored-by: ${{ github.actor }} <${{ github.actor }}@users.noreply.github.com>")"
           git push origin HEAD || { git pull --rebase origin HEAD && git push origin HEAD }
           echo "Deployed $TAG with commit https://github.com/${{ github.repository_owner }}/kyber-applications/commit/$(git rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
