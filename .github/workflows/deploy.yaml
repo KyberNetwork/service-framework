@@ -20,7 +20,7 @@ jobs:
   deploy:
     runs-on: ${{ inputs.runs-on }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: ${{ github.repository_owner }}/kyber-applications
           token: ${{ secrets.GH_PAT }}
