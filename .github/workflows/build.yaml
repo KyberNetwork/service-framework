@@ -59,7 +59,7 @@ jobs:
           restore-keys: |
             buildx-${{ inputs.file }}-${{ runner.os }}-
       - name: Inject/extract cache into/from buildx
-        uses: reproducible-containers/buildkit-cache-dance@1b8ab18fbda5ad3646e3fcc9ed9dd41ce2f297b4 # v3.3.2
+        uses: reproducible-containers/buildkit-cache-dance@5422eac04292c961a382e0f584ea0f03ad9da723 # v3.4.0
         if: ${{ inputs.cache }}
         with:
           cache-map: |
