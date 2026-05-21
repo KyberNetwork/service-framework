@@ -73,7 +73,7 @@ jobs:
           credentials_json: "${{ secrets.GCR_CREDENTIALS }}"
       - uses: google-github-actions/setup-gcloud@v3
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_REGISTRY }}/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
           tags: |
