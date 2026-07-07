@@ -34,6 +34,11 @@ jobs:
     steps:
       - name: Add git config for Go private module
         run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
+      - name: Tune git http settings for large/slow transfers
+        run: |
+          git config --global http.postBuffer 524288000
+          git config --global http.lowSpeedLimit 1000
+          git config --global http.lowSpeedTime 300
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
@@ -52,6 +57,11 @@ jobs:
     steps:
       - name: Add git config for Go private module
         run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
+      - name: Tune git http settings for large/slow transfers
+        run: |
+          git config --global http.postBuffer 524288000
+          git config --global http.lowSpeedLimit 1000
+          git config --global http.lowSpeedTime 300
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
@@ -82,6 +92,11 @@ jobs:
     steps:
       - name: Add git config for Go private module
         run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
+      - name: Tune git http settings for large/slow transfers
+        run: |
+          git config --global http.postBuffer 524288000
+          git config --global http.lowSpeedLimit 1000
+          git config --global http.lowSpeedTime 300
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.base.ref }}
