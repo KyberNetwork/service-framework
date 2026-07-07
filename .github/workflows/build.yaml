@@ -45,6 +45,11 @@ jobs:
     outputs:
       tag: ${{ steps.output.outputs.tag }}
     steps:
+      - name: Tune git http settings for large/slow transfers
+        run: |
+          git config --global http.postBuffer 524288000
+          git config --global http.lowSpeedLimit 1000
+          git config --global http.lowSpeedTime 300
       - uses: actions/checkout@v6
       - uses: docker/setup-buildx-action@v4
         with:
