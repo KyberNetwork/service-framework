@@ -34,16 +34,16 @@ jobs:
     steps:
       - name: Add git config for Go private module
         run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
-      - name: Tune git http settings for large/slow transfers
-        run: |
-          git config --global http.postBuffer 524288000
-          git config --global http.lowSpeedLimit 1000
-          git config --global http.lowSpeedTime 300
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version-file: 'go.mod'
           cache: false
+
+      - name: Configure Go Proxy
+        run: |
+          go env -w GOPROXY=http://10.244.0.2:8080
+          go env -w GOSUMDB=off
 
       - uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
         with:
@@ -57,15 +57,15 @@ jobs:
     steps:
       - name: Add git config for Go private module
         run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
-      - name: Tune git http settings for large/slow transfers
-        run: |
-          git config --global http.postBuffer 524288000
-          git config --global http.lowSpeedLimit 1000
-          git config --global http.lowSpeedTime 300
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version-file: 'go.mod'
+
+      - name: Configure Go Proxy
+        run: |
+          go env -w GOPROXY=http://10.244.0.2:8080
+          go env -w GOSUMDB=off
 
       - name: Run tests
         # language=bash
@@ -92,17 +92,17 @@ jobs:
     steps:
       - name: Add git config for Go private module
         run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
-      - name: Tune git http settings for large/slow transfers
-        run: |
-          git config --global http.postBuffer 524288000
-          git config --global http.lowSpeedLimit 1000
-          git config --global http.lowSpeedTime 300
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.base.ref }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: 'go.mod'
+
+      - name: Configure Go Proxy
+        run: |
+          go env -w GOPROXY=http://10.244.0.2:8080
+          go env -w GOSUMDB=off
 
       - id: cov
         name: Get coverage
