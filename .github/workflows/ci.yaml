@@ -43,7 +43,7 @@ jobs:
       - name: Configure Go Proxy
         run: |
           go env -w GOPROXY=http://10.244.0.2:8080
-          go env -w GOSUMDB=off
+          go env -w GOPRIVATE=github.com/KyberNetwork
 
       - uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
         with:
@@ -65,7 +65,7 @@ jobs:
       - name: Configure Go Proxy
         run: |
           go env -w GOPROXY=http://10.244.0.2:8080
-          go env -w GOSUMDB=off
+          go env -w GOPRIVATE=github.com/KyberNetwork
 
       - name: Run tests
         # language=bash
@@ -102,7 +102,7 @@ jobs:
       - name: Configure Go Proxy
         run: |
           go env -w GOPROXY=http://10.244.0.2:8080
-          go env -w GOSUMDB=off
+          go env -w GOPRIVATE=github.com/KyberNetwork
 
       - id: cov
         name: Get coverage
