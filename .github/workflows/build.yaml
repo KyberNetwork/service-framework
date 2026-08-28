@@ -72,6 +72,7 @@ jobs:
         with:
           credentials_json: "${{ secrets.GCR_CREDENTIALS }}"
       - uses: google-github-actions/setup-gcloud@v3
+      - run: gcloud auth configure-docker
       - id: meta
         uses: docker/metadata-action@v6
         with:
