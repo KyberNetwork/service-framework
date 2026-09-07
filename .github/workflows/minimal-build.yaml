@@ -1,0 +1,89 @@
+name: 'Build'
+
+# Check that your service repo is private if this service-framework repo is also private
+# Sample permissions and concurrency config:
+# permissions: write-all
+# concurrency:
+#   group: ci-workflow-${{ github.ref }}-${{ github.event_name }}
+#   cancel-in-progress: true
+
+on:
+  workflow_call:
+    inputs:
+      cluster:
+        description: 'Docker image directory'
+        type: string
+        default: core
+      service:
+        description: 'Service repo name'
+        type: string
+        required: true
+      version:
+        description: 'Release version'
+        type: string
+      file:
+        description: 'Dockerfile path if not the default one'
+        type: string
+      cache:
+        description: 'Enable buildx caching (experimental)'
+        type: boolean
+      runs-on:
+        description: 'Type of machine to run the job on'
+        type: string
+        default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+    outputs:
+      tag:
+        description: 'Built tag'
+        value: ${{ jobs.build.outputs.tag }}
+
+env:
+  IMAGE_REGISTRY: asia.gcr.io
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      tag: ${{ steps.output.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: google-github-actions/auth@v3
+        with:
+          credentials_json: "${{ secrets.GCR_CREDENTIALS }}"
+      - uses: google-github-actions/setup-gcloud@v3
+      - run: gcloud auth configure-docker
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_REGISTRY }}/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
+          tags: |
+            type=semver,value=${{ inputs.version }},pattern=v{{version}}
+            type=semver,value=${{ inputs.version }},pattern=v{{major}}.{{minor}}
+            type=semver,value=${{ inputs.version }},pattern=v{{major}}
+            type=ref,event=branch
+            type=ref,event=tag
+            type=raw,value={{branch}}-{{sha}},enable=${{ github.event_name != 'pull_request' && github.ref_type == 'branch' }}
+          labels: |
+            kyber.network.schema-version=1.0
+            kyber.network.name=${{ inputs.service }}
+            kyber.network.version=${{ inputs.version }}
+            kyber.network.vcs-ref=${{ github.sha }}
+      - uses: docker/build-push-action@v7
+        with:
+          file: ${{ inputs.file }}
+          push: ${{ github.event_name != 'pull_request' }}
+          build-args: |
+            GH_USER=kyber-ci-bot
+            GOPROXY=http://goproxy.apse1.ops.ks-infra.internal.,direct
+            GOPRIVATE=github.com/KyberNetwork
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          secrets: |
+            "gh_pat=${{ secrets.GH_PAT }}"
+      - id: output
+        name: Output tag and build summary
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          <<<"$TAGS" sed -nE '0,/.+:(v[0-9]+(\.[0-9]+){2}.*|.+-[a-z0-9]{7,})$/s//tag=\1/p' | tee -a $GITHUB_OUTPUT
+          echo -e 'Image tags: \n```\n'"$(<<<"$TAGS" tr ' ' '\n')"'\n```' >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,70 @@
+name: CI minimal
+
+# Check that your service repo is private if this service-framework repo is also private
+# Sample concurrency config:
+# concurrency:
+#   group: ci-workflow-${{ github.ref }}-${{ github.event_name }}
+#   cancel-in-progress: true
+
+# Sample permissions config:
+# permissions:
+  # issues: write
+  # pull-requests: write
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Type of machine to run the job on'
+        type: string
+        default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+      golangci-lint-version:
+        description: 'Version of golangci-lint'
+        type: string
+        default: v2.4
+      env:
+        description: 'A set of environment variables in JSON format'
+        type: string
+        default: '{}'
+
+env: ${{ fromJSON(inputs.env) }}
+
+jobs:
+  lint:
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - name: Add git config for Go private module
+        run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: false
+
+      - uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+        with:
+          version: ${{ inputs.golangci-lint-version }}
+          skip-save-cache: true
+          skip-cache: true
+          args: --timeout=10m
+          only-new-issues: true
+
+  test:
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - name: Add git config for Go private module
+        run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: false
+
+      - name: Configure Go Proxy
+        run: |
+          go env -w GOPROXY=http://goproxy.apse1.ops.ks-infra.internal.,direct
+          go env -w GOPRIVATE=github.com/KyberNetwork
+
+      - name: Run tests
+        run: |
+          go test -race -vet=off -timeout=10m ./...
