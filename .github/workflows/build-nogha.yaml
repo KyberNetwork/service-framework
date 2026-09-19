@@ -1,22 +1,16 @@
-name: 'Build (fast)'
+name: 'Build (no gha cache)'
 
-# Variant C of build.yaml. Two changes:
+# Variant B of build.yaml. ONE change: drop `cache-from`/`cache-to: type=gha`.
+# Everything else, including setup-buildx-action, is untouched.
 #
-# 1. Drop `cache-from`/`cache-to: type=gha` - see build-nogha.yaml for the
-#    measurement (121.9s of a 226s build, for a cache that does not help once
-#    the source changes).
+# Measured on the ARC runners: exporting to the GitHub Actions cache took 121.9s
+# of a 226s build (`#18 exporting to GitHub Actions Cache`, mode=max writes every
+# layer). A separate head-to-head showed that cache returning nothing on the next
+# build once the source changes, because `COPY . .` precedes `RUN go build`, so
+# the expensive layer is invalidated anyway. Net cost, no benefit.
 #
-# 2. Drop `docker/setup-buildx-action`, so the default builder uses the BuildKit
-#    embedded in dockerd instead of booting a buildkit container inside an
-#    ephemeral dind. That boot measured 11-132s depending on node load.
-#
-# Change 2 is what costs something: the docker driver cannot do multi-platform
-# builds, and supports no cache exporter except `inline`. Neither is used by
-# callers today - arm builds run natively on self-hosted-arm-runner - but a
-# service needing either must stay on build.yaml or build-nogha.yaml.
-#
-# NOT included: installing zstd. It belongs in the runner image, not here -
-# `apt-get install` measured 54s on one job, more than the build itself.
+# Keeping setup-buildx-action means multi-platform builds and the other buildx
+# cache exporters still work - this variant gives up nothing.
 
 # Check that your service repo is private if this service-framework repo is also private
 # Sample permissions and concurrency config:
@@ -64,6 +58,9 @@ jobs:
       tag: ${{ steps.output.outputs.tag }}
     steps:
       - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+        with:
+          version: v0.30.1
       - name: Cache for buildx
         uses: actions/cache@v5
         id: cache
