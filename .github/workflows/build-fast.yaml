@@ -1,0 +1,144 @@
+name: 'Build (fast)'
+
+# Benchmark variant of build.yaml. Same inputs, same outputs, same image tags -
+# a caller can swap between the two by changing only the `uses:` line.
+#
+# Two changes, both measured on the ARC runners (sre-ci-cd-test):
+#
+# 1. No `docker/setup-buildx-action`. The default builder then uses the BuildKit
+#    embedded in dockerd instead of booting a buildkit container inside an
+#    ephemeral dind. That boot cost 21s on an idle node and 132s on a busy one,
+#    and is pure overhead: the build step itself measured the same either way
+#    (64s vs 65s side by side).
+#
+#    This forces dropping `cache-from/cache-to: type=gha` as well - the docker
+#    driver fails outright with "Cache export is not supported for the docker
+#    driver", it does not degrade gracefully. No loss in practice: a head-to-head
+#    run showed the gha layer cache saving nothing, because `COPY . .` sits ahead
+#    of `RUN go build` so the expensive layer is invalidated by any code change.
+#
+#    What this variant cannot do, and build.yaml can:
+#      - multi-platform builds (`platforms:`) - not supported by the docker driver
+#      - any cache exporter except `inline`
+#    Neither is used by callers today (arm builds run natively on
+#    self-hosted-arm-runner), but a service that needs them must stay on build.yaml.
+#
+# 2. zstd installed before the cache steps. @actions/cache picks its compression
+#    by probing for a zstd binary (cacheUtils.getCompressionMethod: empty version
+#    output -> Gzip). The runner image ships without zstd, so every cache entry in
+#    the org is gzip today - confirmed in job logs by `cache.tgz` and `tar -z`.
+#    zstd decompresses several times faster, which is the 7-13s untar half of the
+#    restore cost.
+#
+#    Note: the compression method is part of the cache version
+#    (cacheUtils.getCacheVersion pushes it into the key components), so the first
+#    run after this change is a guaranteed MISS on every existing entry. It warms
+#    back up by itself, but do not mistake it for a regression.
+#    This only matters when `cache: true`; with the default it is a no-op.
+
+on:
+  workflow_call:
+    inputs:
+      cluster:
+        description: 'Docker image directory'
+        type: string
+        default: core
+      service:
+        description: 'Service repo name'
+        type: string
+        required: true
+      version:
+        description: 'Release version'
+        type: string
+      file:
+        description: 'Dockerfile path if not the default one'
+        type: string
+      cache:
+        description: 'Enable buildx caching (experimental)'
+        type: boolean
+      runs-on:
+        description: 'Type of machine to run the job on'
+        type: string
+        default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+    outputs:
+      tag:
+        description: 'Built tag'
+        value: ${{ jobs.build.outputs.tag }}
+
+env:
+  IMAGE_REGISTRY: asia.gcr.io
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      tag: ${{ steps.output.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+      # Must run before any actions/cache step: the compression method is decided
+      # at that point and baked into the cache key.
+      - name: Install zstd
+        run: |
+          if command -v zstd >/dev/null 2>&1; then
+            echo "zstd already present: $(zstd --version)"
+          else
+            sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends zstd
+            echo "installed: $(zstd --version)"
+          fi
+      - name: Cache for buildx
+        uses: actions/cache@v5
+        id: cache
+        if: ${{ inputs.cache }}
+        with:
+          path: .buildx-cache
+          key: buildx-${{ inputs.file }}-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            buildx-${{ inputs.file }}-${{ runner.os }}-
+      - name: Inject/extract cache into/from buildx
+        uses: reproducible-containers/buildkit-cache-dance@5422eac04292c961a382e0f584ea0f03ad9da723 # v3.4.0
+        if: ${{ inputs.cache }}
+        with:
+          cache-map: |
+            {
+              ".buildx-cache/go/pkg": "/go/pkg",
+              ".buildx-cache/root/.cache/go-build": "/root/.cache/go-build"
+            }
+          skip-extraction: ${{ steps.cache.outputs.cache-hit }}
+      - uses: google-github-actions/auth@v3
+        with:
+          credentials_json: "${{ secrets.GCR_CREDENTIALS }}"
+      - uses: google-github-actions/setup-gcloud@v3
+      - run: gcloud auth configure-docker
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_REGISTRY }}/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
+          tags: |
+            type=semver,value=${{ inputs.version }},pattern=v{{version}}
+            type=semver,value=${{ inputs.version }},pattern=v{{major}}.{{minor}}
+            type=semver,value=${{ inputs.version }},pattern=v{{major}}
+            type=ref,event=branch
+            type=ref,event=tag
+            type=raw,value={{branch}}-{{sha}},enable=${{ github.event_name != 'pull_request' && github.ref_type == 'branch' }}
+          labels: |
+            kyber.network.schema-version=1.0
+            kyber.network.name=${{ inputs.service }}
+            kyber.network.version=${{ inputs.version }}
+            kyber.network.vcs-ref=${{ github.sha }}
+      - uses: docker/build-push-action@v7
+        with:
+          file: ${{ inputs.file }}
+          push: ${{ github.event_name != 'pull_request' }}
+          build-args: |
+            GH_USER=kyber-ci-bot
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          secrets: |
+            "gh_pat=${{ secrets.GH_PAT }}"
+      - id: output
+        name: Output tag and build summary
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          <<<"$TAGS" sed -nE '0,/.+:(v[0-9]+(\.[0-9]+){2}.*|.+-[a-z0-9]{7,})$/s//tag=\1/p' | tee -a $GITHUB_OUTPUT
+          echo -e 'Image tags: \n```\n'"$(<<<"$TAGS" tr ' ' '\n')"'\n```' >> $GITHUB_STEP_SUMMARY
