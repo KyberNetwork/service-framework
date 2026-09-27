@@ -43,22 +43,35 @@ jobs:
       builder: ${{ steps.remote.outcome == 'success' && 'remote' || 'local' }}
     steps:
       - uses: actions/checkout@v6
-      # Client side of the mTLS pair. Missing secrets leave empty files, the remote
-      # builder then fails to connect and the local fallback below takes over.
-      - name: Write BuildKit client certs
+      # Client side of the mTLS pair. If any secret is missing the remote builder is
+      # skipped right away (instead of timing out after 20s) and the local fallback
+      # below takes over.
+      - id: certs
+        name: Write BuildKit client certs
         env:
           BUILDKIT_CA: ${{ secrets.BUILDKIT_CA }}
           BUILDKIT_CLIENT_CERT: ${{ secrets.BUILDKIT_CLIENT_CERT }}
           BUILDKIT_CLIENT_KEY: ${{ secrets.BUILDKIT_CLIENT_KEY }}
         run: |
+          missing=""
+          [ -n "$BUILDKIT_CA" ] || missing="$missing BUILDKIT_CA"
+          [ -n "$BUILDKIT_CLIENT_CERT" ] || missing="$missing BUILDKIT_CLIENT_CERT"
+          [ -n "$BUILDKIT_CLIENT_KEY" ] || missing="$missing BUILDKIT_CLIENT_KEY"
+          if [ -n "$missing" ]; then
+            echo "::warning::Missing secrets:$missing - skipping remote BuildKit"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           d="${{ runner.temp }}/buildkit"
           mkdir -p "$d"
           printf '%s\n' "$BUILDKIT_CA" > "$d/ca.pem"
           printf '%s\n' "$BUILDKIT_CLIENT_CERT" > "$d/cert.pem"
           printf '%s\n' "$BUILDKIT_CLIENT_KEY" > "$d/key.pem"
           chmod 600 "$d/key.pem"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
       - id: remote
         name: Set up remote BuildKit
+        if: steps.certs.outputs.ready == 'true'
         continue-on-error: true
         uses: docker/setup-buildx-action@v4
         with:
