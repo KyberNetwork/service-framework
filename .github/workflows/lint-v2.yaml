@@ -45,6 +45,7 @@ on:
 
 jobs:
   lint:
+    name: golangci-lint (remote BuildKit)
     runs-on: ${{ inputs.runs-on }}
     outputs:
       builder: ${{ steps.remote.outcome == 'success' && 'remote' || 'local' }}
@@ -106,15 +107,23 @@ jobs:
           esac
           if [ -n "${url:-}" ] && curl -fsSL -o "$patch" \
                -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.v3.diff" \
-               "$GITHUB_API_URL/$url" && [ -s "$patch" ]; then
-            echo "Linting only lines changed in $url ($(grep -c '^+++ ' "$patch") files)"
+               "$GITHUB_API_URL/$url"; then
+            if ! grep -qE '^\+\+\+ b/.*\.go$' "$patch"; then
+              # New issues can only be on changed .go lines: none changed, nothing to report
+              # (golangci-lint-action would analyse everything and report nothing).
+              rm -f "$patch"
+              echo "::notice::No Go file changed in $url - nothing new to lint, skipping"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Linting only lines changed in $url ($(grep -cE '^\+\+\+ b/.*\.go$' "$patch") Go files)"
             echo "flag=--new-from-patch=/src/$patch" >> "$GITHUB_OUTPUT"
           else
             rm -f "$patch"
             echo "::notice::No usable diff for $EVENT - linting the whole module"
           fi
       - name: Write lint Dockerfile
-        if: steps.remote.outcome == 'success'
+        if: steps.remote.outcome == 'success' && steps.diff.outputs.skip != 'true'
         run: |
           d="${{ runner.temp }}/lint"
           mkdir -p "$d"
@@ -151,7 +160,7 @@ jobs:
           printf '.git\n' > "$d/Dockerfile.dockerignore"
           echo "GO_VERSION=$(awk '/^go /{print $2; exit}' go.mod)" >> "$GITHUB_ENV"
       - name: golangci-lint (remote BuildKit)
-        if: steps.remote.outcome == 'success'
+        if: steps.remote.outcome == 'success' && steps.diff.outputs.skip != 'true'
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           # No build record export: against the remote builder it times out (see build-v2.yaml).
