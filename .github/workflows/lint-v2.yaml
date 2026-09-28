@@ -45,7 +45,8 @@ on:
 
 jobs:
   lint:
-    name: golangci-lint (remote BuildKit)
+    # Shown as "<caller job> / lint" in the UI (reusable workflows always get the prefix).
+    name: lint
     runs-on: ${{ inputs.runs-on }}
     outputs:
       builder: ${{ steps.remote.outcome == 'success' && 'remote' || 'local' }}
