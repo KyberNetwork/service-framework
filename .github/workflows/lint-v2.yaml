@@ -1,0 +1,212 @@
+name: 'Lint v2'
+
+# golangci-lint on the shared remote BuildKit daemon (StatefulSet buildkitd in
+# aws-apse1-sre-ops-cluster, mTLS) instead of on the runner with a cold cache.
+# The daemon keeps GOMODCACHE, GOCACHE and the golangci-lint cache in cache mounts
+# across jobs, so each run only re-analyses the packages that changed. Today the
+# lint jobs run golangci-lint-action with skip-cache and re-analyse everything.
+#
+# only-new-issues: the PR diff (pull_request) or the before...after compare
+# (push) is fetched from the GitHub API and passed as --new-from-patch, so no git
+# history has to be sent to the daemon. Without a usable diff it lints everything.
+#
+# Falls back to golangci-lint-action on the runner (as today) when the remote
+# daemon is unreachable or the BUILDKIT_* secrets are missing.
+#
+# Secrets: GH_PAT (private modules), BUILDKIT_CA, BUILDKIT_CLIENT_CERT, BUILDKIT_CLIENT_KEY
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'golangci-lint version'
+        type: string
+        default: v2.13.2
+      args:
+        description: 'Extra golangci-lint run arguments'
+        type: string
+        default: --timeout=10m
+      only-new-issues:
+        description: 'Only report issues in the changed lines'
+        type: boolean
+        default: true
+      goproxy:
+        description: 'GOPROXY for module downloads inside BuildKit (empty: Go default, proxy.golang.org)'
+        type: string
+        default: ''
+      runs-on:
+        description: 'Type of machine to run the job on'
+        type: string
+        default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+      buildkit-endpoint:
+        description: 'Remote BuildKit daemon address'
+        type: string
+        default: tcp://buildkitd.buildkit.svc.cluster.local:1234
+    outputs:
+      builder:
+        description: 'Where the lint ran: remote or local'
+        value: ${{ jobs.lint.outputs.builder }}
+
+jobs:
+  lint:
+    # Shown as "<caller job> / lint" in the UI (reusable workflows always get the prefix).
+    name: lint
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      builder: ${{ steps.remote.outcome == 'success' && 'remote' || 'local' }}
+    steps:
+      - uses: actions/checkout@v6
+      # Client side of the mTLS pair; skip the remote builder right away if any is missing.
+      - id: certs
+        name: Write BuildKit client certs
+        env:
+          BUILDKIT_CA: ${{ secrets.BUILDKIT_CA }}
+          BUILDKIT_CLIENT_CERT: ${{ secrets.BUILDKIT_CLIENT_CERT }}
+          BUILDKIT_CLIENT_KEY: ${{ secrets.BUILDKIT_CLIENT_KEY }}
+        run: |
+          missing=""
+          [ -n "$BUILDKIT_CA" ] || missing="$missing BUILDKIT_CA"
+          [ -n "$BUILDKIT_CLIENT_CERT" ] || missing="$missing BUILDKIT_CLIENT_CERT"
+          [ -n "$BUILDKIT_CLIENT_KEY" ] || missing="$missing BUILDKIT_CLIENT_KEY"
+          if [ -n "$missing" ]; then
+            echo "::warning::Missing secrets:$missing - skipping remote BuildKit"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          d="${{ runner.temp }}/buildkit"
+          mkdir -p "$d"
+          printf '%s\n' "$BUILDKIT_CA" > "$d/ca.pem"
+          printf '%s\n' "$BUILDKIT_CLIENT_CERT" > "$d/cert.pem"
+          printf '%s\n' "$BUILDKIT_CLIENT_KEY" > "$d/key.pem"
+          chmod 600 "$d/key.pem"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+      - id: remote
+        name: Set up remote BuildKit
+        if: steps.certs.outputs.ready == 'true'
+        continue-on-error: true
+        uses: docker/setup-buildx-action@v4
+        with:
+          version: v0.30.1
+          driver: remote
+          endpoint: ${{ inputs.buildkit-endpoint }}
+          driver-opts: |
+            cacert=${{ runner.temp }}/buildkit/ca.pem
+            cert=${{ runner.temp }}/buildkit/cert.pem
+            key=${{ runner.temp }}/buildkit/key.pem
+            servername=buildkitd
+
+      # ---------- remote: golangci-lint inside BuildKit ----------
+      - name: Fetch diff for only-new-issues
+        id: diff
+        if: steps.remote.outcome == 'success' && inputs.only-new-issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          patch=.lint-new-issues.patch
+          case "$EVENT" in
+            pull_request*) url="repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" ;;
+            push) [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ] \
+                    && url="repos/$GITHUB_REPOSITORY/compare/$BEFORE...$GITHUB_SHA" ;;
+          esac
+          if [ -n "${url:-}" ] && curl -fsSL -o "$patch" \
+               -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.v3.diff" \
+               "$GITHUB_API_URL/$url"; then
+            if ! grep -qE '^\+\+\+ b/.*\.go$' "$patch"; then
+              # New issues can only be on changed .go lines: none changed, nothing to report
+              # (golangci-lint-action would analyse everything and report nothing).
+              rm -f "$patch"
+              echo "::notice::No Go file changed in $url - nothing new to lint, skipping"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Linting only lines changed in $url ($(grep -cE '^\+\+\+ b/.*\.go$' "$patch") Go files)"
+            echo "flag=--new-from-patch=/src/$patch" >> "$GITHUB_OUTPUT"
+          else
+            rm -f "$patch"
+            echo "::notice::No usable diff for $EVENT - linting the whole module"
+          fi
+      - name: Write lint Dockerfile
+        if: steps.remote.outcome == 'success' && steps.diff.outputs.skip != 'true'
+        run: |
+          d="${{ runner.temp }}/lint"
+          mkdir -p "$d"
+          cat > "$d/Dockerfile" <<'EOF'
+          # syntax=docker/dockerfile:1
+          ARG GO_VERSION
+          ARG GOLANGCI_LINT_VERSION
+          FROM golangci/golangci-lint:${GOLANGCI_LINT_VERSION} AS golangci
+          FROM golang:${GO_VERSION}
+          COPY --from=golangci /usr/bin/golangci-lint /usr/local/bin/golangci-lint
+          ARG GH_USER
+          ARG GOPROXY
+          ENV GOPROXY=${GOPROXY} \
+              GOPRIVATE=github.com/KyberNetwork \
+              GOFLAGS=-buildvcs=false \
+              GOMODCACHE=/go/pkg/mod \
+              GOCACHE=/root/.cache/go-build \
+              GOLANGCI_LINT_CACHE=/root/.cache/golangci-lint
+          WORKDIR /src
+          COPY . .
+          ARG LINT_ARGS
+          ARG LINT_NEW_FROM
+          RUN --mount=type=secret,id=gh_pat,env=GH_PAT \
+              --mount=type=cache,target=/go/pkg/mod \
+              --mount=type=cache,target=/root/.cache/go-build \
+              --mount=type=cache,target=/root/.cache/golangci-lint \
+              GIT_CONFIG_COUNT=1 \
+              GIT_CONFIG_KEY_0="url.https://${GH_USER}:${GH_PAT}@github.com/.insteadOf" \
+              GIT_CONFIG_VALUE_0="https://github.com/" \
+              golangci-lint run --output.text.colors=false ${LINT_ARGS} ${LINT_NEW_FROM}
+          EOF
+          # Dockerfile-specific ignore: overrides the service's .dockerignore, which
+          # drops *_test.go and other files the linter must see.
+          printf '.git\n' > "$d/Dockerfile.dockerignore"
+          echo "GO_VERSION=$(awk '/^go /{print $2; exit}' go.mod)" >> "$GITHUB_ENV"
+      - name: golangci-lint (remote BuildKit)
+        if: steps.remote.outcome == 'success' && steps.diff.outputs.skip != 'true'
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          # No build record export: against the remote builder it times out (see build-v2.yaml).
+          DOCKER_BUILD_SUMMARY: "false"
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
+        run: |
+          echo "::notice::Linting on remote BuildKit ${{ inputs.buildkit-endpoint }} (go $GO_VERSION, golangci-lint ${{ inputs.version }})"
+          docker buildx build \
+            -f "${{ runner.temp }}/lint/Dockerfile" \
+            --platform linux/amd64 \
+            --secret id=gh_pat,env=GH_PAT \
+            --build-arg GO_VERSION="$GO_VERSION" \
+            --build-arg GOLANGCI_LINT_VERSION="${{ inputs.version }}" \
+            --build-arg GH_USER=kyber-ci-bot \
+            --build-arg GOPROXY="${{ inputs.goproxy }}" \
+            --build-arg LINT_ARGS="${{ inputs.args }}" \
+            --build-arg LINT_NEW_FROM="${{ steps.diff.outputs.flag }}" \
+            --output type=cacheonly \
+            --progress=plain \
+            .
+
+      # ---------- local fallback: today's lint job ----------
+      - name: Add git config for Go private module
+        if: steps.remote.outcome != 'success'
+        run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
+      - uses: actions/setup-go@v6
+        if: steps.remote.outcome != 'success'
+        with:
+          go-version-file: 'go.mod'
+          cache: false
+      - name: golangci-lint (local fallback)
+        if: steps.remote.outcome != 'success'
+        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+        with:
+          version: ${{ inputs.version }}
+          skip-save-cache: true
+          skip-cache: true
+          args: ${{ inputs.args }}
+          only-new-issues: ${{ inputs.only-new-issues }}
+
+      - name: Clean up
+        if: always()
+        run: rm -rf "${{ runner.temp }}/buildkit" "${{ runner.temp }}/lint" .lint-new-issues.patch
