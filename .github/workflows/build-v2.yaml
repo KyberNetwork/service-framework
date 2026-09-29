@@ -137,6 +137,8 @@ jobs:
             type=ref,event=tag
             type=raw,value={{branch}}-{{sha}},enable=${{ github.event_name != 'pull_request' && github.ref_type == 'branch' }}
           labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
             kyber.network.schema-version=1.0
             kyber.network.name=${{ inputs.service }}
             kyber.network.version=${{ inputs.version }}
@@ -151,11 +153,14 @@ jobs:
           file: ${{ inputs.file }}
           push: ${{ github.event_name != 'pull_request' }}
           build-args: |
+            REPO=${{ github.repository }}
+            SERVICE=${{ inputs.service }}
             GH_USER=kyber-ci-bot
             GOPRIVATE=github.com/KyberNetwork
             ${{ inputs.goproxy && format('GOPROXY={0}', inputs.goproxy) || '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
           secrets: |
             "gh_pat=${{ secrets.GH_PAT }}"
       - name: Remove BuildKit client certs
