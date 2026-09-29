@@ -1,4 +1,7 @@
-name: 'Release'
+name: 'Release v2'
+
+# Builds with build.yaml (remote BuildKit).
+# Callers must pass secrets: inherit so build.yaml gets the BUILDKIT_* secrets.
 
 # Check that your service repo is private if this service-framework repo is also private
 # Sample concurrency config:
@@ -44,6 +47,14 @@ on:
         description: 'Type of machine to run the job on'
         type: string
         default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+      goproxy:
+        description: 'Passed as the GOPROXY build-arg when set'
+        type: string
+        default: ''
+      buildkit-endpoint:
+        description: 'Remote BuildKit daemon address'
+        type: string
+        default: tcp://buildkitd.buildkit.svc.cluster.local:1234
 
 jobs:
   prepare:
@@ -81,6 +92,8 @@ jobs:
       version: ${{ needs.prepare.outputs.version }}
       file: ${{ inputs.file }}
       runs-on: ${{ inputs.runs-on }}
+      goproxy: ${{ inputs.goproxy }}
+      buildkit-endpoint: ${{ inputs.buildkit-endpoint }}
     secrets: inherit
   tag:
     runs-on: ${{ inputs.runs-on }}

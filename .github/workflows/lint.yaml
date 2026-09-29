@@ -169,7 +169,7 @@ jobs:
         if: steps.remote.outcome == 'success' && steps.diff.outputs.skip != 'true'
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
-          # No build record export: against the remote builder it times out (see build-v2.yaml).
+          # No build record export: against the remote builder it times out (see build.yaml).
           DOCKER_BUILD_SUMMARY: "false"
           DOCKER_BUILD_RECORD_UPLOAD: "false"
         run: |

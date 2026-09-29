@@ -1,4 +1,7 @@
-name: CI
+name: CI v2
+
+# Lints with lint.yaml (remote BuildKit, only new issues).
+# Callers must pass secrets: inherit so lint.yaml gets GH_PAT and the BUILDKIT_* secrets.
 
 # Check that your service repo is private if this service-framework repo is also private
 # Sample concurrency config:
@@ -20,30 +23,31 @@ on:
       golangci-lint-version:
         description: 'Version of golangci-lint'
         type: string
-        default: v2.4
+        default: v2.13.2
       env:
         description: 'A set of environment variables in JSON format'
         type: string
         default: '{}'
+      goproxy:
+        description: 'GOPROXY for module downloads inside BuildKit (empty: Go default, proxy.golang.org)'
+        type: string
+        default: ''
+      buildkit-endpoint:
+        description: 'Remote BuildKit daemon address'
+        type: string
+        default: tcp://buildkitd.buildkit.svc.cluster.local:1234
 
 env: ${{ fromJSON(inputs.env) }}
 
 jobs:
   lint:
-    runs-on: ${{ inputs.runs-on }}
-    steps:
-      - name: Add git config for Go private module
-        run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: 'go.mod'
-          cache: false
-
-      - uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
-        with:
-          version: ${{ inputs.golangci-lint-version }}
-          args: --timeout=10m
+    uses: ./.github/workflows/lint.yaml
+    with:
+      version: ${{ inputs.golangci-lint-version }}
+      runs-on: ${{ inputs.runs-on }}
+      goproxy: ${{ inputs.goproxy }}
+      buildkit-endpoint: ${{ inputs.buildkit-endpoint }}
+    secrets: inherit
 
   test:
     runs-on: ${{ inputs.runs-on }}

@@ -1,11 +1,20 @@
-name: 'Build'
+name: 'Build v2'
 
-# Check that your service repo is private if this service-framework repo is also private
-# Sample permissions and concurrency config:
-# permissions: write-all
-# concurrency:
-#   group: ci-workflow-${{ github.ref }}-${{ github.event_name }}
-#   cancel-in-progress: true
+# Drop-in replacement for the pre-v2 build.yaml (same inputs and tags) that builds on the shared
+# remote BuildKit daemon (buildkitd StatefulSet in aws-apse1-sre-ops-cluster, mTLS)
+# instead of a fresh BuildKit inside the runner's dind. The daemon keeps layers and
+# cache mounts (GOMODCACHE/GOCACHE) across jobs, so only what changed is rebuilt.
+#
+# Falls back to the local builder (dind, like the pre-v2 build.yaml) when the BUILDKIT_* secrets
+# are missing or the daemon is unreachable: slower, but the build still succeeds.
+# The `builder` output tells which one ran.
+#
+# Required secrets (in addition to GCR_CREDENTIALS and GH_PAT):
+#   BUILDKIT_CA, BUILDKIT_CLIENT_CERT, BUILDKIT_CLIENT_KEY  (PEM contents)
+#
+# Measured on kd-market-service (build job, 2026-09-28): median 212s -> 45s.
+# To benefit fully, the Dockerfile should use cache mounts for GOMODCACHE and GOCACHE
+# and pass the gh_pat secret to every step that may fetch private modules.
 
 on:
   workflow_call:
@@ -25,16 +34,27 @@ on:
         description: 'Dockerfile path if not the default one'
         type: string
       cache:
-        description: 'Enable buildx caching (experimental)'
+        description: 'Accepted for compatibility with the pre-v2 build.yaml; ignored (the remote daemon keeps the cache)'
         type: boolean
+      goproxy:
+        description: 'Passed as the GOPROXY build-arg when set (the pre-v2 build.yaml passes none)'
+        type: string
+        default: ''
       runs-on:
         description: 'Type of machine to run the job on'
         type: string
         default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+      buildkit-endpoint:
+        description: 'Remote BuildKit daemon address'
+        type: string
+        default: tcp://buildkitd.buildkit.svc.cluster.local:1234
     outputs:
       tag:
         description: 'Built tag'
         value: ${{ jobs.build.outputs.tag }}
+      builder:
+        description: 'Builder actually used: remote or local'
+        value: ${{ jobs.build.outputs.builder }}
 
 env:
   IMAGE_REGISTRY: asia.gcr.io
@@ -44,34 +64,66 @@ jobs:
     runs-on: ${{ inputs.runs-on }}
     outputs:
       tag: ${{ steps.output.outputs.tag }}
+      builder: ${{ steps.remote.outcome == 'success' && 'remote' || 'local' }}
     steps:
       - uses: actions/checkout@v6
-      - uses: docker/setup-buildx-action@v4
+      # Client side of the mTLS pair. If any secret is missing the remote builder is
+      # skipped right away (instead of timing out after 20s) and the local fallback
+      # below takes over.
+      - id: certs
+        name: Write BuildKit client certs
+        env:
+          BUILDKIT_CA: ${{ secrets.BUILDKIT_CA }}
+          BUILDKIT_CLIENT_CERT: ${{ secrets.BUILDKIT_CLIENT_CERT }}
+          BUILDKIT_CLIENT_KEY: ${{ secrets.BUILDKIT_CLIENT_KEY }}
+        run: |
+          missing=""
+          [ -n "$BUILDKIT_CA" ] || missing="$missing BUILDKIT_CA"
+          [ -n "$BUILDKIT_CLIENT_CERT" ] || missing="$missing BUILDKIT_CLIENT_CERT"
+          [ -n "$BUILDKIT_CLIENT_KEY" ] || missing="$missing BUILDKIT_CLIENT_KEY"
+          if [ -n "$missing" ]; then
+            echo "::warning::Missing secrets:$missing - skipping remote BuildKit"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          d="${{ runner.temp }}/buildkit"
+          mkdir -p "$d"
+          printf '%s\n' "$BUILDKIT_CA" > "$d/ca.pem"
+          printf '%s\n' "$BUILDKIT_CLIENT_CERT" > "$d/cert.pem"
+          printf '%s\n' "$BUILDKIT_CLIENT_KEY" > "$d/key.pem"
+          chmod 600 "$d/key.pem"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+      - id: remote
+        name: Set up remote BuildKit
+        if: steps.certs.outputs.ready == 'true'
+        continue-on-error: true
+        uses: docker/setup-buildx-action@v4
         with:
           version: v0.30.1
-      - name: Cache for buildx
-        uses: actions/cache@v5
-        id: cache
-        if: ${{ inputs.cache }}
+          driver: remote
+          endpoint: ${{ inputs.buildkit-endpoint }}
+          driver-opts: |
+            cacert=${{ runner.temp }}/buildkit/ca.pem
+            cert=${{ runner.temp }}/buildkit/cert.pem
+            key=${{ runner.temp }}/buildkit/key.pem
+            servername=buildkitd
+      - name: Set up local BuildKit (fallback)
+        if: steps.remote.outcome != 'success'
+        uses: docker/setup-buildx-action@v4
         with:
-          path: .buildx-cache
-          key: buildx-${{ inputs.file }}-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            buildx-${{ inputs.file }}-${{ runner.os }}-
-      - name: Inject/extract cache into/from buildx
-        uses: reproducible-containers/buildkit-cache-dance@5422eac04292c961a382e0f584ea0f03ad9da723 # v3.4.0
-        if: ${{ inputs.cache }}
-        with:
-          cache-map: |
-            {
-              ".buildx-cache/go/pkg": "/go/pkg",
-              ".buildx-cache/root/.cache/go-build": "/root/.cache/go-build"
-            }
-          skip-extraction: ${{ steps.cache.outputs.cache-hit }}
+          version: v0.30.1
+      - name: Report builder
+        run: |
+          if [ "${{ steps.remote.outcome }}" = success ]; then
+            echo "::notice::Building on remote BuildKit ${{ inputs.buildkit-endpoint }}"
+          else
+            echo "::warning::Remote BuildKit unavailable, building on the local builder (slower, no cache)"
+          fi
       - uses: google-github-actions/auth@v3
         with:
           credentials_json: "${{ secrets.GCR_CREDENTIALS }}"
       - uses: google-github-actions/setup-gcloud@v3
+      # The remote daemon pushes to GCR itself, with the credentials this runner forwards.
       - run: gcloud auth configure-docker
       - id: meta
         uses: docker/metadata-action@v6
@@ -90,17 +142,25 @@ jobs:
             kyber.network.version=${{ inputs.version }}
             kyber.network.vcs-ref=${{ github.sha }}
       - uses: docker/build-push-action@v7
+        env:
+          # The post step exports the build record for the job summary; against the
+          # remote builder it waits 20s and then fails with "context deadline exceeded".
+          DOCKER_BUILD_SUMMARY: ${{ steps.remote.outcome != 'success' }}
+          DOCKER_BUILD_RECORD_UPLOAD: ${{ steps.remote.outcome != 'success' }}
         with:
           file: ${{ inputs.file }}
           push: ${{ github.event_name != 'pull_request' }}
           build-args: |
             GH_USER=kyber-ci-bot
+            GOPRIVATE=github.com/KyberNetwork
+            ${{ inputs.goproxy && format('GOPROXY={0}', inputs.goproxy) || '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           secrets: |
             "gh_pat=${{ secrets.GH_PAT }}"
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Remove BuildKit client certs
+        if: always()
+        run: rm -rf "${{ runner.temp }}/buildkit"
       - id: output
         name: Output tag and build summary
         env:
