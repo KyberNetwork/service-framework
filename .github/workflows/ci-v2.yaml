@@ -1,0 +1,152 @@
+name: CI v2
+
+# Same as ci.yaml, but lints with lint-v2.yaml (remote BuildKit, only new issues).
+# Callers must pass secrets: inherit so lint-v2 gets GH_PAT and the BUILDKIT_* secrets.
+
+# Check that your service repo is private if this service-framework repo is also private
+# Sample concurrency config:
+# concurrency:
+#   group: ci-workflow-${{ github.ref }}-${{ github.event_name }}
+#   cancel-in-progress: true
+# Sample permissions config:
+# permissions:
+#   issues: write
+#   pull-requests: write
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Type of machine to run the job on'
+        type: string
+        default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+      golangci-lint-version:
+        description: 'Version of golangci-lint'
+        type: string
+        default: v2.13.2
+      env:
+        description: 'A set of environment variables in JSON format'
+        type: string
+        default: '{}'
+      goproxy:
+        description: 'GOPROXY for module downloads inside BuildKit (empty: Go default, proxy.golang.org)'
+        type: string
+        default: ''
+      buildkit-endpoint:
+        description: 'Remote BuildKit daemon address'
+        type: string
+        default: tcp://buildkitd.buildkit.svc.cluster.local:1234
+
+env: ${{ fromJSON(inputs.env) }}
+
+jobs:
+  lint:
+    uses: ./.github/workflows/lint-v2.yaml
+    with:
+      version: ${{ inputs.golangci-lint-version }}
+      runs-on: ${{ inputs.runs-on }}
+      goproxy: ${{ inputs.goproxy }}
+      buildkit-endpoint: ${{ inputs.buildkit-endpoint }}
+    secrets: inherit
+
+  test:
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      cov: ${{ steps.cov.outputs.cov }}
+    steps:
+      - name: Add git config for Go private module
+        run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Run tests
+        # language=bash
+        run: |
+          go test -race -parallel 128 -p 32 -cover -vet=off ./... >cover.out || EC=$?;
+          { echo -e '<details>\n<summary>New test result:</summary>\n\n```'
+            cat cover.out; } | tee -a $GITHUB_STEP_SUMMARY; (exit $EC)
+      - id: cov
+        name: Get coverage
+        # language=bash
+        run: |
+          {
+            echo 'cov<<EOF'
+            <cover.out grep -v 'no test files' |
+              awk '{printf "%s b %.2f\n", $2, $5}'
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+  test_base:
+    runs-on: ${{ inputs.runs-on }}
+    if: github.event_name == 'pull_request'
+    outputs:
+      cov: ${{ steps.cov.outputs.cov }}
+    steps:
+      - name: Add git config for Go private module
+        run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      - id: cov
+        name: Get coverage
+        # language=bash
+        run: |
+          echo -e '<details>\n<summary>Base test result:</summary>\n\n```' >> $GITHUB_STEP_SUMMARY
+          {
+            echo 'cov<<EOF'
+            go test -race -parallel 128 -p 32 -cover -vet=off ./... |
+              tee -a $GITHUB_STEP_SUMMARY |
+              grep -v 'no test files' |
+              awk '{printf "%s a %.2f\n", $2, $5}'
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+  test_coverage:
+    runs-on: ${{ inputs.runs-on }}
+    needs: [test, test_base]
+    if: github.event_name == 'pull_request' && !cancelled() && needs.test.result == 'success' && github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
+    steps:
+      - id: cov
+        name: Generate coverage report
+        # language=bash
+        run: |
+          {
+            echo 'report<<EOF'
+            <<<"${{ needs.test_base.outputs.cov }}"$'\n'"${{ needs.test.outputs.cov }}" sort |
+              awk 'function diff(a, b) {
+                  if (!a && !b) { return }
+                  printf("| %s | %.2f%% | %.2f%% | %s |\n", pkg, a, b, (a && b < a) ? ":x:" : ":heavy_check_mark:")
+                }
+
+                BEGIN { print("<details>\n<summary>Test coverage changes:</summary>\n\n" \
+                  "| Package | Before | After | Diff |\n" \
+                  "| ------- | -----: | ----: | ---- |")
+                }
+
+                $1 != pkg {
+                  diff(a, b)
+                  a = b = ""
+                  pkg = $1
+                }
+                $2 == "a" { a = $3 }
+                $2 == "b" { b = $3 }
+
+                END {
+                  diff(a, b)
+                  print("</details>")
+                }' | tee -a $GITHUB_STEP_SUMMARY
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+      - name: Comment PR
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b # v3.0.1
+        with:
+          github-token: ${{ secrets.GH_PAT }}
+          message: ${{ steps.cov.outputs.report }}
+          pr-number: ${{ github.event.pull_request.number }}
+          comment-tag: cov
