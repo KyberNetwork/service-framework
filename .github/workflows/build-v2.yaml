@@ -12,6 +12,10 @@ name: 'Build v2'
 # Required secrets (in addition to GCR_CREDENTIALS and GH_PAT):
 #   BUILDKIT_CA, BUILDKIT_CLIENT_CERT, BUILDKIT_CLIENT_KEY  (PEM contents)
 #
+# Multi-arch: `archs` (JSON list, default ["amd64"]) builds one job per arch, each on its own
+# native BuildKit daemon, pushes by digest, and a final `merge` job publishes every tag as a
+# single manifest list. The arm64 arch has no local fallback (the daemon must be reachable).
+#
 # Measured on kd-market-service (build job, 2026-09-28): median 212s -> 45s.
 # To benefit fully, the Dockerfile should use cache mounts for GOMODCACHE and GOCACHE
 # and pass the gh_pat secret to every step that may fetch private modules.
@@ -45,16 +49,21 @@ on:
         type: string
         default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
       buildkit-endpoint:
-        description: 'Remote BuildKit daemon address'
+        description: 'Remote BuildKit daemon address (amd64)'
         type: string
         default: tcp://buildkitd.buildkit.svc.cluster.local:1234
+      buildkit-endpoint-arm64:
+        description: 'Remote BuildKit daemon address (arm64)'
+        type: string
+        default: tcp://buildkitd-arm.buildkit.svc.cluster.local:1234
+      archs:
+        description: 'Architectures to build in JSON format, e.g. ["amd64","arm64"]'
+        type: string
+        default: '["amd64"]'
     outputs:
       tag:
         description: 'Built tag'
-        value: ${{ jobs.build.outputs.tag }}
-      builder:
-        description: 'Builder actually used: remote or local'
-        value: ${{ jobs.build.outputs.builder }}
+        value: ${{ jobs.merge.outputs.tag }}
 
 env:
   IMAGE_REGISTRY: asia.gcr.io
@@ -62,9 +71,12 @@ env:
 jobs:
   build:
     runs-on: ${{ inputs.runs-on }}
-    outputs:
-      tag: ${{ steps.output.outputs.tag }}
-      builder: ${{ steps.remote.outcome == 'success' && 'remote' || 'local' }}
+    strategy:
+      fail-fast: true
+      matrix:
+        arch: ${{ fromJSON(inputs.archs) }}
+    env:
+      IMAGE: asia.gcr.io/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
     steps:
       - uses: actions/checkout@v6
       # Client side of the mTLS pair. If any secret is missing the remote builder is
@@ -101,12 +113,17 @@ jobs:
         with:
           version: v0.30.1
           driver: remote
-          endpoint: ${{ inputs.buildkit-endpoint }}
+          endpoint: ${{ matrix.arch == 'arm64' && inputs.buildkit-endpoint-arm64 || inputs.buildkit-endpoint }}
           driver-opts: |
             cacert=${{ runner.temp }}/buildkit/ca.pem
             cert=${{ runner.temp }}/buildkit/cert.pem
             key=${{ runner.temp }}/buildkit/key.pem
             servername=buildkitd
+      - name: Fail without remote BuildKit
+        if: steps.remote.outcome != 'success' && matrix.arch != 'amd64'
+        run: |
+          echo "::error::Remote BuildKit for ${{ matrix.arch }} is unavailable and there is no local fallback"
+          exit 1
       - name: Set up local BuildKit (fallback)
         if: steps.remote.outcome != 'success'
         uses: docker/setup-buildx-action@v4
@@ -115,7 +132,7 @@ jobs:
       - name: Report builder
         run: |
           if [ "${{ steps.remote.outcome }}" = success ]; then
-            echo "::notice::Building on remote BuildKit ${{ inputs.buildkit-endpoint }}"
+            echo "::notice::Building ${{ matrix.arch }} on remote BuildKit"
           else
             echo "::warning::Remote BuildKit unavailable, building on the local builder (slower, no cache)"
           fi
@@ -128,7 +145,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.IMAGE_REGISTRY }}/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
+          images: ${{ env.IMAGE }}
           tags: |
             type=semver,value=${{ inputs.version }},pattern=v{{version}}
             type=semver,value=${{ inputs.version }},pattern=v{{major}}.{{minor}}
@@ -141,7 +158,8 @@ jobs:
             kyber.network.name=${{ inputs.service }}
             kyber.network.version=${{ inputs.version }}
             kyber.network.vcs-ref=${{ github.sha }}
-      - uses: docker/build-push-action@v7
+      - id: build
+        uses: docker/build-push-action@v7
         env:
           # The post step exports the build record for the job summary; against the
           # remote builder it waits 20s and then fails with "context deadline exceeded".
@@ -149,18 +167,84 @@ jobs:
           DOCKER_BUILD_RECORD_UPLOAD: ${{ steps.remote.outcome != 'success' }}
         with:
           file: ${{ inputs.file }}
-          push: ${{ github.event_name != 'pull_request' }}
+          platforms: linux/${{ matrix.arch }}
+          provenance: false
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-only=true,push=${{ github.event_name != 'pull_request' }}
           build-args: |
             GH_USER=kyber-ci-bot
             GOPRIVATE=github.com/KyberNetwork
             ${{ inputs.goproxy && format('GOPROXY={0}', inputs.goproxy) || '' }}
-          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           secrets: |
             "gh_pat=${{ secrets.GH_PAT }}"
       - name: Remove BuildKit client certs
         if: always()
         run: rm -rf "${{ runner.temp }}/buildkit"
+      - name: Export digest
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          touch "${{ runner.temp }}/digests/${DIGEST#sha256:}"
+      - name: Upload digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: build
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      tag: ${{ steps.output.outputs.tag }}
+    env:
+      IMAGE: asia.gcr.io/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
+    steps:
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,value=${{ inputs.version }},pattern=v{{version}}
+            type=semver,value=${{ inputs.version }},pattern=v{{major}}.{{minor}}
+            type=semver,value=${{ inputs.version }},pattern=v{{major}}
+            type=ref,event=branch
+            type=ref,event=tag
+            type=raw,value={{branch}}-{{sha}},enable=${{ github.event_name != 'pull_request' && github.ref_type == 'branch' }}
+      - name: Download digests
+        if: github.event_name != 'pull_request'
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v4
+        if: github.event_name != 'pull_request'
+        with:
+          version: v0.30.1
+      - uses: google-github-actions/auth@v3
+        if: github.event_name != 'pull_request'
+        with:
+          credentials_json: "${{ secrets.GCR_CREDENTIALS }}"
+      - uses: google-github-actions/setup-gcloud@v3
+        if: github.event_name != 'pull_request'
+      - run: gcloud auth configure-docker
+        if: github.event_name != 'pull_request'
+      - name: Create manifest list
+        if: github.event_name != 'pull_request'
+        working-directory: ${{ runner.temp }}/digests
+        # language=bash
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "$IMAGE@sha256:%s " *)
+      - name: Inspect manifest list
+        if: github.event_name != 'pull_request'
+        run: docker buildx imagetools inspect "$IMAGE:${{ steps.meta.outputs.version }}"
       - id: output
         name: Output tag and build summary
         env:
