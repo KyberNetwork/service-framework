@@ -40,14 +40,22 @@ on:
         description: 'Passed as the GOPROXY build-arg when set (build.yaml passes none)'
         type: string
         default: ''
+      arch:
+        description: 'Target architecture: amd64 or arm64'
+        type: string
+        default: amd64
       runs-on:
         description: 'Type of machine to run the job on'
         type: string
-        default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+        default: ''
       buildkit-endpoint:
         description: 'Remote BuildKit daemon address'
         type: string
-        default: tcp://buildkitd.buildkit.svc.cluster.local:1234
+        default: ''
+      tag-suffix:
+        description: 'Optional suffix appended to image tags (e.g. -arm64)'
+        type: string
+        default: ''
     outputs:
       tag:
         description: 'Built tag'
@@ -61,7 +69,7 @@ env:
 
 jobs:
   build:
-    runs-on: ${{ inputs.runs-on }}
+    runs-on: ${{ inputs.runs-on != '' && inputs.runs-on || (inputs.arch == 'arm64' && 'self-hosted-arm-runner' || (github.event.repository.private && 'self-hosted' || 'ubuntu-latest')) }}
     outputs:
       tag: ${{ steps.output.outputs.tag }}
       builder: ${{ steps.remote.outcome == 'success' && 'remote' || 'local' }}
@@ -93,6 +101,18 @@ jobs:
           printf '%s\n' "$BUILDKIT_CLIENT_KEY" > "$d/key.pem"
           chmod 600 "$d/key.pem"
           echo "ready=true" >> "$GITHUB_OUTPUT"
+      - id: config
+        name: Resolve builder configuration
+        run: |
+          endpoint="${{ inputs.buildkit-endpoint }}"
+          if [ -z "$endpoint" ]; then
+            if [ "${{ inputs.arch }}" = "arm64" ]; then
+              endpoint="tcp://buildkitd-arm.buildkit.svc.cluster.local:1234"
+            else
+              endpoint="tcp://buildkitd.buildkit.svc.cluster.local:1234"
+            fi
+          fi
+          echo "endpoint=$endpoint" >> "$GITHUB_OUTPUT"
       - id: remote
         name: Set up remote BuildKit
         if: steps.certs.outputs.ready == 'true'
@@ -101,7 +121,7 @@ jobs:
         with:
           version: v0.30.1
           driver: remote
-          endpoint: ${{ inputs.buildkit-endpoint }}
+          endpoint: ${{ steps.config.outputs.endpoint }}
           driver-opts: |
             cacert=${{ runner.temp }}/buildkit/ca.pem
             cert=${{ runner.temp }}/buildkit/cert.pem
@@ -115,7 +135,7 @@ jobs:
       - name: Report builder
         run: |
           if [ "${{ steps.remote.outcome }}" = success ]; then
-            echo "::notice::Building on remote BuildKit ${{ inputs.buildkit-endpoint }}"
+            echo "::notice::Building on remote BuildKit ${{ steps.config.outputs.endpoint }} (arch: ${{ inputs.arch }})"
           else
             echo "::warning::Remote BuildKit unavailable, building on the local builder (slower, no cache)"
           fi
@@ -129,6 +149,8 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_REGISTRY }}/kyber-operation/${{ inputs.cluster }}/${{ inputs.service }}
+          flavor: |
+            suffix=${{ inputs.tag-suffix }}
           tags: |
             type=semver,value=${{ inputs.version }},pattern=v{{version}}
             type=semver,value=${{ inputs.version }},pattern=v{{major}}.{{minor}}
@@ -143,6 +165,7 @@ jobs:
             kyber.network.name=${{ inputs.service }}
             kyber.network.version=${{ inputs.version }}
             kyber.network.vcs-ref=${{ github.sha }}
+            kyber.network.arch=${{ inputs.arch }}
       - uses: docker/build-push-action@v7
         env:
           # The post step exports the build record for the job summary; against the
@@ -152,9 +175,11 @@ jobs:
         with:
           file: ${{ inputs.file }}
           push: ${{ github.event_name != 'pull_request' }}
+          platforms: linux/${{ inputs.arch }}
           build-args: |
             REPO=${{ github.repository }}
             SERVICE=${{ inputs.service }}
+            TARGETARCH=${{ inputs.arch }}
             GH_USER=kyber-ci-bot
             GOPRIVATE=github.com/KyberNetwork
             ${{ inputs.goproxy && format('GOPROXY={0}', inputs.goproxy) || '' }}
