@@ -40,6 +40,10 @@ on:
         description: 'Passed as the GOPROXY build-arg when set (build.yaml passes none)'
         type: string
         default: ''
+      extra-build-args:
+        description: 'Extra build-args, one KEY=VALUE per line'
+        type: string
+        default: ''
       runs-on:
         description: 'Type of machine to run the job on'
         type: string
@@ -156,6 +160,7 @@ jobs:
             GH_USER=kyber-ci-bot
             GOPRIVATE=github.com/KyberNetwork
             ${{ inputs.goproxy && format('GOPROXY={0}', inputs.goproxy) || '' }}
+            ${{ inputs.extra-build-args }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           secrets: |
