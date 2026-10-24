@@ -155,7 +155,7 @@ jobs:
           DOCKER_BUILD_RECORD_UPLOAD: ${{ steps.remote.outcome != 'success' }}
         with:
           file: ${{ inputs.file }}
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           build-args: |
             GH_USER=kyber-ci-bot
             GOPRIVATE=github.com/KyberNetwork
