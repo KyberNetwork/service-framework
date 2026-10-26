@@ -125,9 +125,10 @@ jobs:
           fi
       - uses: google-github-actions/auth@v3
         with:
-          project_id: kyber-operation
-          workload_identity_provider: projects/404526013717/locations/global/workloadIdentityPools/eks-github-action-pool/providers/github-provider
-          service_account: github-runner-ci@kyber-operation.iam.gserviceaccount.com
+          credentials_json: "${{ secrets.GCR_CREDENTIALS }}"
+          #project_id: kyber-operation
+          #workload_identity_provider: projects/404526013717/locations/global/workloadIdentityPools/eks-github-action-pool/providers/github-provider
+          #service_account: github-runner-ci@kyber-operation.iam.gserviceaccount.com
       - uses: google-github-actions/setup-gcloud@v3
       # The remote daemon pushes to GCR itself, with the credentials this runner forwards.
       - run: gcloud auth configure-docker
