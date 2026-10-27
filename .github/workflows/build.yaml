@@ -99,8 +99,18 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           secrets: |
             "gh_pat=${{ secrets.GH_PAT }}"
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # No `cache-from`/`cache-to: type=gha`. Measured on the ARC runners:
+          # exporting to the Actions cache took 88-122s of a ~233s build
+          # (`#18 exporting to GitHub Actions Cache`, mode=max writes every layer),
+          # and returned almost nothing on the next build. The service Dockerfiles
+          # run `COPY . .` before `RUN go build`, so any code change invalidates the
+          # COPY layer and every layer beneath it, including the expensive one - a
+          # control run hit 4 cached layers, all of them trivial, and still
+          # downloaded 106 modules and compiled from scratch.
+          #
+          # Worth revisiting per service once a Dockerfile puts `COPY go.mod go.sum`
+          # + dependency work ahead of `COPY . .`; then there is a layer worth
+          # caching. Until then this is cost with no return.
       - id: output
         name: Output tag and build summary
         env:
