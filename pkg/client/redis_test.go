@@ -51,7 +51,7 @@ func TestRedisCfgDecodesConfig(t *testing.T) {
 
 func TestRedisCfgOnUpdateBuildsClient(t *testing.T) {
 	cfg := &RedisCfg{}
-	cfg.Addrs = []string{"localhost:6379"}
+	cfg.Addrs = []string{"127.0.0.1:1"} // nothing listens; building the client does not connect
 	cfg.Password = testRedisPassword
 	cfg.OnUpdate(nil, cfg)
 
