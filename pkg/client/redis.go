@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/KyberNetwork/kutils/klog"
@@ -36,6 +37,35 @@ func (*RedisCfg) OnUpdate(old, new *RedisCfg) {
 	}
 	new.RouteRandomly = new.RouteRandomly || !new.DisableRouteRandomly
 	new.C = NewRedisClient(ctx, &new.UniversalOptions)
+}
+
+const redacted = "[REDACTED]"
+
+// redisCfgFields has the fields of RedisCfg and none of its methods, so
+// formatting it does not call back into RedisCfg.String. A field added to
+// RedisCfg is printed too.
+type redisCfgFields RedisCfg
+
+// String hides the passwords. Services log their config with %+v, and hotcfg
+// logs every update with "Cfg.Update|from=%+v,to=%+v".
+func (c RedisCfg) String() string { return c.format("%+v") }
+
+// GoString hides the passwords for %#v.
+func (c RedisCfg) GoString() string { return c.format("%#v") }
+
+func (c RedisCfg) format(verb string) string {
+	fields := redisCfgFields(c)
+	fields.Password = redactString(fields.Password)
+	fields.SentinelPassword = redactString(fields.SentinelPassword)
+	return fmt.Sprintf(verb, fields)
+}
+
+// redactString keeps an empty value empty, so a missing password stays visible.
+func redactString(s string) string {
+	if s == "" {
+		return ""
+	}
+	return redacted
 }
 
 func NewRedisClient(ctx context.Context, opts *redis.UniversalOptions) redis.UniversalClient {
