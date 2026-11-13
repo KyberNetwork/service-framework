@@ -50,62 +50,25 @@ jobs:
     secrets: inherit
 
   test:
-    runs-on: ${{ inputs.runs-on }}
-    outputs:
-      cov: ${{ steps.cov.outputs.cov }}
-    steps:
-      - name: Add git config for Go private module
-        run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: 'go.mod'
-
-      - name: Run tests
-        # language=bash
-        run: |
-          go test -race -parallel 128 -p 32 -cover -vet=off ./... >cover.out || EC=$?;
-          { echo -e '<details>\n<summary>New test result:</summary>\n\n```'
-            cat cover.out; } | tee -a $GITHUB_STEP_SUMMARY; (exit $EC)
-      - id: cov
-        name: Get coverage
-        # language=bash
-        run: |
-          {
-            echo 'cov<<EOF'
-            <cover.out grep -v 'no test files' |
-              awk '{printf "%s b %.2f\n", $2, $5}'
-            echo 'EOF'
-          } >> $GITHUB_OUTPUT
+    uses: ./.github/workflows/test-v2.yaml
+    with:
+      runs-on: ${{ inputs.runs-on }}
+      env: ${{ inputs.env }}
+      goproxy: ${{ inputs.goproxy }}
+      buildkit-endpoint: ${{ inputs.buildkit-endpoint }}
+    secrets: inherit
 
   test_base:
-    runs-on: ${{ inputs.runs-on }}
+    uses: ./.github/workflows/test-v2.yaml
     if: github.event_name == 'pull_request'
-    outputs:
-      cov: ${{ steps.cov.outputs.cov }}
-    steps:
-      - name: Add git config for Go private module
-        run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.pull_request.base.ref }}
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: 'go.mod'
-
-      - id: cov
-        name: Get coverage
-        # language=bash
-        run: |
-          echo -e '<details>\n<summary>Base test result:</summary>\n\n```' >> $GITHUB_STEP_SUMMARY
-          {
-            echo 'cov<<EOF'
-            go test -race -parallel 128 -p 32 -cover -vet=off ./... |
-              tee -a $GITHUB_STEP_SUMMARY |
-              grep -v 'no test files' |
-              awk '{printf "%s a %.2f\n", $2, $5}'
-            echo 'EOF'
-          } >> $GITHUB_OUTPUT
+    with:
+      ref: ${{ github.event.pull_request.base.ref }}
+      label: a
+      runs-on: ${{ inputs.runs-on }}
+      env: ${{ inputs.env }}
+      goproxy: ${{ inputs.goproxy }}
+      buildkit-endpoint: ${{ inputs.buildkit-endpoint }}
+    secrets: inherit
 
   test_coverage:
     runs-on: ${{ inputs.runs-on }}

@@ -1,0 +1,201 @@
+name: 'Test v2'
+
+# go test on the shared remote BuildKit daemon (StatefulSet buildkitd in
+# aws-apse1-sre-ops-cluster, mTLS) instead of on the runner with a cold cache.
+# The daemon keeps GOMODCACHE and GOCACHE in cache mounts across jobs, so only
+# the packages that changed get rebuilt.
+#
+# The test stage writes cover.out and the exit code to a scratch stage, which
+# buildx exports to the runner. The job fails with the same exit code as go test.
+#
+# Falls back to go test on the runner (as ci.yaml) when the remote daemon is
+# unreachable or the BUILDKIT_* secrets are missing.
+#
+# Secrets: GH_PAT (private modules), BUILDKIT_CA, BUILDKIT_CLIENT_CERT, BUILDKIT_CLIENT_KEY
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Git ref to test (empty: the triggering ref)'
+        type: string
+        default: ''
+      label:
+        description: 'Coverage side in test_coverage: b (after) or a (before)'
+        type: string
+        default: b
+      env:
+        description: 'A set of environment variables in JSON format'
+        type: string
+        default: '{}'
+      goproxy:
+        description: 'GOPROXY for module downloads inside BuildKit (empty: Go default, proxy.golang.org)'
+        type: string
+        default: ''
+      runs-on:
+        description: 'Type of machine to run the job on'
+        type: string
+        default: ${{ github.event.repository.private && 'self-hosted' || 'ubuntu-latest' }}
+      buildkit-endpoint:
+        description: 'Remote BuildKit daemon address'
+        type: string
+        default: tcp://buildkitd.buildkit.svc.cluster.local:1234
+    outputs:
+      cov:
+        description: 'Per-package coverage, read by test_coverage'
+        value: ${{ jobs.test.outputs.cov }}
+      builder:
+        description: 'Where the tests ran: remote or local'
+        value: ${{ jobs.test.outputs.builder }}
+
+env: ${{ fromJSON(inputs.env) }}
+
+jobs:
+  test:
+    # Shown as "<caller job> / test" in the UI (reusable workflows always get the prefix).
+    name: test
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      cov: ${{ steps.cov.outputs.cov }}
+      builder: ${{ steps.remote.outcome == 'success' && 'remote' || 'local' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      # Client side of the mTLS pair; skip the remote builder right away if any is missing.
+      - id: certs
+        name: Write BuildKit client certs
+        env:
+          BUILDKIT_CA: ${{ secrets.BUILDKIT_CA }}
+          BUILDKIT_CLIENT_CERT: ${{ secrets.BUILDKIT_CLIENT_CERT }}
+          BUILDKIT_CLIENT_KEY: ${{ secrets.BUILDKIT_CLIENT_KEY }}
+        run: |
+          missing=""
+          [ -n "$BUILDKIT_CA" ] || missing="$missing BUILDKIT_CA"
+          [ -n "$BUILDKIT_CLIENT_CERT" ] || missing="$missing BUILDKIT_CLIENT_CERT"
+          [ -n "$BUILDKIT_CLIENT_KEY" ] || missing="$missing BUILDKIT_CLIENT_KEY"
+          if [ -n "$missing" ]; then
+            echo "::warning::Missing secrets:$missing - skipping remote BuildKit"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          d="${{ runner.temp }}/buildkit"
+          mkdir -p "$d"
+          printf '%s\n' "$BUILDKIT_CA" > "$d/ca.pem"
+          printf '%s\n' "$BUILDKIT_CLIENT_CERT" > "$d/cert.pem"
+          printf '%s\n' "$BUILDKIT_CLIENT_KEY" > "$d/key.pem"
+          chmod 600 "$d/key.pem"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+      - id: remote
+        name: Set up remote BuildKit
+        if: steps.certs.outputs.ready == 'true'
+        continue-on-error: true
+        uses: docker/setup-buildx-action@v4
+        with:
+          version: v0.30.1
+          driver: remote
+          endpoint: ${{ inputs.buildkit-endpoint }}
+          driver-opts: |
+            cacert=${{ runner.temp }}/buildkit/ca.pem
+            cert=${{ runner.temp }}/buildkit/cert.pem
+            key=${{ runner.temp }}/buildkit/key.pem
+            servername=buildkitd
+
+      # ---------- remote: go test inside BuildKit ----------
+      - name: Write test Dockerfile
+        if: steps.remote.outcome == 'success'
+        run: |
+          d="${{ runner.temp }}/test"
+          mkdir -p "$d"
+          cat > "$d/Dockerfile" <<'EOF'
+          # syntax=docker/dockerfile:1
+          ARG GO_VERSION
+          FROM golang:${GO_VERSION} AS test
+          ARG GH_USER
+          ARG GOPROXY
+          ENV GOPROXY=${GOPROXY} \
+              GOPRIVATE=github.com/KyberNetwork \
+              GOFLAGS=-buildvcs=false \
+              GOMODCACHE=/go/pkg/mod \
+              GOCACHE=/root/.cache/go-build
+          EOF
+          # Service env (inputs.env, JSON object) becomes ENV lines in the test stage.
+          jq -r 'to_entries[] | "ENV \(.key)=\(.value|@json)"' <<<"$SERVICE_ENV" >> "$d/Dockerfile"
+          cat >> "$d/Dockerfile" <<'EOF'
+          WORKDIR /src
+          COPY . .
+          RUN --mount=type=secret,id=gh_pat,env=GH_PAT \
+              --mount=type=cache,target=/go/pkg/mod \
+              --mount=type=cache,target=/root/.cache/go-build \
+              mkdir -p /out && \
+              GIT_CONFIG_COUNT=1 \
+              GIT_CONFIG_KEY_0="url.https://${GH_USER}:${GH_PAT}@github.com/.insteadOf" \
+              GIT_CONFIG_VALUE_0="https://github.com/" \
+              sh -c 'go test -race -parallel 128 -p 32 -cover -vet=off ./... > /out/cover.out 2>&1; echo $? > /out/exit'
+          # Always succeeds: the job reads /out/exit to decide pass or fail.
+          FROM scratch AS out
+          COPY --from=test /out /
+          EOF
+          # Dockerfile-specific ignore: overrides the service's .dockerignore, which
+          # drops *_test.go and other files the tests need.
+          printf '.git\n' > "$d/Dockerfile.dockerignore"
+          echo "GO_VERSION=$(awk '/^go /{print $2; exit}' go.mod)" >> "$GITHUB_ENV"
+      - name: go test (remote BuildKit)
+        if: steps.remote.outcome == 'success'
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          SERVICE_ENV: ${{ inputs.env }}
+          # No build record export: against the remote builder it times out (see build-v2.yaml).
+          DOCKER_BUILD_SUMMARY: "false"
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
+        run: |
+          echo "::notice::Testing on remote BuildKit ${{ inputs.buildkit-endpoint }} (go $GO_VERSION)"
+          docker buildx build \
+            -f "${{ runner.temp }}/test/Dockerfile" \
+            --platform linux/amd64 \
+            --secret id=gh_pat,env=GH_PAT \
+            --build-arg GO_VERSION="$GO_VERSION" \
+            --build-arg GH_USER=kyber-ci-bot \
+            --build-arg GOPROXY="${{ inputs.goproxy }}" \
+            --output type=local,dest="${{ runner.temp }}/test/out" \
+            --progress=plain \
+            .
+      - name: Report remote test result
+        if: steps.remote.outcome == 'success'
+        run: |
+          out="${{ runner.temp }}/test/out"
+          cp "$out/cover.out" cover.out
+          { echo -e '<details>\n<summary>${{ inputs.label == 'a' && 'Base' || 'New' }} test result:</summary>\n\n```'
+            cat cover.out; } | tee -a $GITHUB_STEP_SUMMARY
+          exit "$(cat "$out/exit")"
+
+      # ---------- local fallback: today's test steps ----------
+      - name: Add git config for Go private module
+        if: steps.remote.outcome != 'success'
+        run: git config --global url."https://${{ secrets.GH_PAT }}:x-oauth-basic@github.com/".insteadOf https://github.com/
+      - uses: actions/setup-go@v6
+        if: steps.remote.outcome != 'success'
+        with:
+          go-version-file: 'go.mod'
+      - name: Run tests (local fallback)
+        if: steps.remote.outcome != 'success'
+        # language=bash
+        run: |
+          go test -race -parallel 128 -p 32 -cover -vet=off ./... >cover.out || EC=$?;
+          { echo -e '<details>\n<summary>${{ inputs.label == 'a' && 'Base' || 'New' }} test result:</summary>\n\n```'
+            cat cover.out; } | tee -a $GITHUB_STEP_SUMMARY; (exit $EC)
+
+      - id: cov
+        name: Get coverage
+        # language=bash
+        run: |
+          {
+            echo 'cov<<EOF'
+            <cover.out grep -v 'no test files' |
+              awk '{printf "%s ${{ inputs.label }} %.2f\n", $2, $5}'
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+      - name: Clean up
+        if: always()
+        run: rm -rf "${{ runner.temp }}/buildkit" "${{ runner.temp }}/test"
