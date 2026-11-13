@@ -131,7 +131,7 @@ jobs:
               GIT_CONFIG_COUNT=1 \
               GIT_CONFIG_KEY_0="url.https://${GH_USER}:${GH_PAT}@github.com/.insteadOf" \
               GIT_CONFIG_VALUE_0="https://github.com/" \
-              sh -c 'go test -race -parallel 128 -p 32 -cover -vet=off ./... > /out/cover.out 2>&1; echo $? > /out/exit'
+              bash -o pipefail -c 'go test -race -parallel 128 -p 32 -cover -vet=off ./... 2>&1 | tee /out/cover.out; echo $? > /out/exit'
           # Always succeeds: the job reads /out/exit to decide pass or fail.
           FROM scratch AS out
           COPY --from=test /out /
