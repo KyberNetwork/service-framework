@@ -109,13 +109,14 @@ jobs:
           mkdir -p "$d"
           cat > "$d/Dockerfile" <<'EOF'
           # syntax=docker/dockerfile:1
-          ARG GO_VERSION
+          ARG GO_VERSION=1.27
           FROM golang:${GO_VERSION} AS test
           ARG GH_USER
           ARG GOPROXY
           ENV GOPROXY=${GOPROXY} \
               GOPRIVATE=github.com/KyberNetwork \
               GOFLAGS=-buildvcs=false \
+              CI=true \
               GOMODCACHE=/go/pkg/mod \
               GOCACHE=/root/.cache/go-build
           EOF
