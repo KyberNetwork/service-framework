@@ -132,7 +132,7 @@ jobs:
               GIT_CONFIG_COUNT=1 \
               GIT_CONFIG_KEY_0="url.https://${GH_USER}:${GH_PAT}@github.com/.insteadOf" \
               GIT_CONFIG_VALUE_0="https://github.com/" \
-              bash -o pipefail -c 'go test -race -parallel 128 -p 32 -cover -vet=off ./... 2>&1 | tee /out/cover.out; echo $? > /out/exit'
+              bash -o pipefail -c 'echo "compile start $(date -u +%T)"; go test -race -count=1 -run XXX_NO_TEST ./... 2>&1 | tee /out/compile.out; echo "compile done $(date -u +%T)"; go test -race -parallel 128 -p 32 -cover -vet=off -v ./... 2>&1 | tee /out/cover.out; echo $? > /out/exit'
           # Always succeeds: the job reads /out/exit to decide pass or fail.
           FROM scratch AS out
           COPY --from=test /out /
@@ -192,7 +192,7 @@ jobs:
         run: |
           {
             echo 'cov<<EOF'
-            <cover.out grep -v 'no test files' |
+            <cover.out grep -E '^ok ' |
               awk '{printf "%s ${{ inputs.label }} %.2f\n", $2, $5}'
             echo 'EOF'
           } >> $GITHUB_OUTPUT
